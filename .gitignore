@@ -1,0 +1,16 @@
+.vs/
+bin/
+obj/
+*.user
+*.suo
+*.pdb
+*.cache
+*.vsidx
+*.log
+
+OutlookQuickMove/bin/
+OutlookQuickMove/obj/
+
+# Code-signing keys / certificates must never be committed.
+*.pfx
+*.snk
