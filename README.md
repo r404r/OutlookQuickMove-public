@@ -1,3 +1,7 @@
+<p align="right">
+  <strong>English</strong> | <a href="README.zh-CN.md">简体中文</a>
+</p>
+
 # OutlookQuickMove
 
 A keyboard-first VSTO add-in for **classic Outlook on Windows** that moves the selected mail
