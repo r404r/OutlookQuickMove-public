@@ -11,6 +11,8 @@
 
 - **Quick Move 对话框**：输入文字即可按完整路径筛选文件夹，使用 `Up`/`Down` 选择，
   按 `Enter` 移动。支持一封或多封已选邮件。
+- **Go to Folder**：搜索同一批文件夹，并把当前 Outlook 窗口切换到选中的文件夹，
+  不移动任何邮件。
 - **常用文件夹优先**：最常使用的目标文件夹会浮到顶部，让常见移动操作只需一次按键
   就能完成（搜索框为空时会预选最常用的文件夹）。
 - **移动前标记为已读**：可选，并且会在重启后记住你的选择。
@@ -68,6 +70,8 @@ $vstoUri = ([System.Uri](Get-Item -LiteralPath $vsto).FullName).AbsoluteUri
 可用按钮：
 
 - `Quick Move`：搜索并移动选中的邮件项目。
+- `Go to Folder`：搜索文件夹并把当前 Outlook 窗口切换到该文件夹（只导航，不移动邮件）。
+  它使用与 Quick Move 相同的数据文件选择和输入筛选对话框。
 - `Undo Quick Move...`：打开最近移动记录清单，把选中的项目移回原文件夹。仅当存在
   可撤销的移动历史时启用。
 - `Settings`：一个带选项卡的对话框，包含 `Data Files`（搜索哪些 Outlook 数据文件）、
@@ -76,6 +80,14 @@ $vstoUri = ([System.Uri](Get-Item -LiteralPath $vsto).FullName).AbsoluteUri
 
 在 Quick Move 对话框中，输入文字筛选文件夹，使用 `Up` / `Down` 切换高亮候选项，
 按 `Enter` 确认。
+
+## 跳转到文件夹
+
+`Go to Folder` 复用 Quick Move 的文件夹选择器，但执行的是导航而不是移动：点击按钮，
+输入文字筛选，使用 `Up` / `Down` 选择，然后按 `Enter`（或点击 `Go`）即可把当前
+Outlook 窗口切换到选中的文件夹。它搜索的文件夹范围与 Quick Move 相同（保存的 Data Files
+选择），并会把最常用的 Quick Move 目标文件夹置顶以便快速访问；但它不会修改任何邮件，
+也不会记录一次移动，因此不会影响常用文件夹统计或撤销历史。
 
 ## 常用文件夹
 

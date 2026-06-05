@@ -11,6 +11,8 @@ to a folder you find by typing — no dragging, no expanding the folder tree.
 
 - **Quick Move dialog** — type to filter folders by full path, `Up`/`Down` to pick, `Enter` to
   move. Works on one or many selected messages.
+- **Go to Folder** — search the same folder list and switch the active Outlook window without
+  moving mail.
 - **Frequent folders first** — destinations you use most float to the top, so common moves are
   one keystroke away (an empty search box pre-selects your most-used folder).
 - **Mark as read before moving** — optional, and your choice is remembered across restarts.
@@ -69,6 +71,8 @@ After installation, restart Outlook. The add-in creates its own top-level Ribbon
 Available buttons:
 
 - `Quick Move`: search and move the selected mail items.
+- `Go to Folder`: search for a folder and switch the active Outlook window to it (navigate, no
+  move). Uses the same Data Files selection and the same type-to-filter dialog as Quick Move.
 - `Undo Quick Move...`: open a checklist of recent moves and send the chosen items back to
   their original folders. Enabled only when there is move history to undo.
 - `Settings`: a tabbed dialog — `Data Files` (which Outlook data files are searched),
@@ -76,6 +80,15 @@ Available buttons:
   remembered-moves cap and a clear option).
 
 In the Quick Move dialog, type to filter folders, use `Up` / `Down` to change the highlighted candidate, and press `Enter` to confirm.
+
+## Go to a folder
+
+`Go to Folder` reuses the Quick Move folder picker to navigate instead of move: press the button,
+type to filter, use `Up` / `Down`, and press `Enter` (or `Go`) to switch the active explorer to
+the chosen folder. It searches the same folders as Quick Move (the saved Data Files selection)
+and floats your most-used Quick Move destinations to the top for quick access, but it never
+changes any mail and never records a move — so the frequent-folders and undo history are
+untouched.
 
 ## Frequent folders
 

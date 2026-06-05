@@ -219,7 +219,8 @@
     <Compile Include="FrequentTarget.cs" />
     <Compile Include="FrequentTargetStore.cs" />
     <Compile Include="MarkAsReadSetting.cs" />
-    <Compile Include="MoveToFolderForm.cs">
+    <Compile Include="FolderPickerOptions.cs" />
+    <Compile Include="FolderPickerForm.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="OutlookFolderEnumerator.cs" />

@@ -37,6 +37,11 @@ namespace OutlookQuickMove
                   size=""large""
                   imageMso=""MoveToFolder""
                   onAction=""OnQuickMove"" />
+          <button id=""QuickJumpButton""
+                  label=""Go to Folder""
+                  size=""large""
+                  imageMso=""FolderOpen""
+                  onAction=""OnGoToFolder"" />
           <button id=""QuickMoveUndoButton""
                   label=""Undo Quick Move...""
                   size=""large""
@@ -65,6 +70,19 @@ namespace OutlookQuickMove
             {
                 QuickMoveLog.Write("unexpected error.", ex);
                 MessageBox.Show("Quick Move failed unexpectedly. Check the Quick Move log for details.", "Quick Move", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        public void OnGoToFolder(Office.IRibbonControl control)
+        {
+            try
+            {
+                ExecuteGoToFolder();
+            }
+            catch (Exception ex)
+            {
+                QuickMoveLog.Write("go to folder failed unexpectedly.", ex);
+                MessageBox.Show("Go to Folder failed unexpectedly. Check the Quick Move log for details.", "Go to Folder", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -197,7 +215,7 @@ namespace OutlookQuickMove
                 string targetEntryId;
                 string targetStoreId;
                 bool markAsRead;
-                using (var form = new MoveToFolderForm(folderResult.Folders))
+                using (var form = new FolderPickerForm(folderResult.Folders, FolderPickerOptions.ForQuickMove()))
                 {
                     if (form.ShowDialog() != DialogResult.OK)
                     {
@@ -333,6 +351,119 @@ namespace OutlookQuickMove
 
                 LogSameFolderSkips(skippedSameFolder, targetIdentity);
                 ShowSummaryIfNeeded(moved, skippedNonMail, skippedSameFolder, failures, folderErrors);
+            }
+            finally
+            {
+                ComUtil.Release(targetFolder);
+                ComUtil.Release(session);
+            }
+        }
+
+        private static void ExecuteGoToFolder()
+        {
+            var application = Globals.ThisAddIn.Application;
+            Outlook.Explorer explorer = null;
+            try
+            {
+                explorer = application.ActiveExplorer();
+                if (explorer == null)
+                {
+                    MessageBox.Show("No active Outlook explorer window is available.", "Go to Folder", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+
+                FolderEnumerationResult folderResult;
+                using (BusyCursor.Show())
+                {
+                    folderResult = OutlookFolderEnumerator.GetMailFolders(application);
+                }
+
+                if (folderResult.Folders.Count == 0)
+                {
+                    var message = folderResult.Errors.Count > 0
+                        ? "No suitable mail folders were found. Some Outlook data files could not be read. Check the Quick Move log for details."
+                        : "No suitable mail folders were found.";
+                    MessageBox.Show(message, "Go to Folder", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                ShowGoToFolderEnumerationWarnings(folderResult.Errors);
+
+                string targetEntryId;
+                string targetStoreId;
+                using (var form = new FolderPickerForm(folderResult.Folders, FolderPickerOptions.ForGoToFolder()))
+                {
+                    if (form.ShowDialog() != DialogResult.OK)
+                    {
+                        return;
+                    }
+
+                    targetEntryId = form.SelectedFolderEntryId;
+                    targetStoreId = form.SelectedFolderStoreId;
+                }
+
+                if (string.IsNullOrEmpty(targetEntryId) || string.IsNullOrEmpty(targetStoreId))
+                {
+                    MessageBox.Show("Select a folder to go to.", "Go to Folder", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+
+                NavigateToFolder(application, explorer, targetEntryId, targetStoreId);
+            }
+            finally
+            {
+                ComUtil.Release(explorer);
+            }
+        }
+
+        private static void ShowGoToFolderEnumerationWarnings(List<string> folderErrors)
+        {
+            if (folderErrors == null || folderErrors.Count == 0)
+            {
+                return;
+            }
+
+            MessageBox.Show(
+                "Some Outlook data files could not be read, so the folder list may be incomplete. Check the Quick Move log for details.",
+                "Go to Folder",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        }
+
+        private static void NavigateToFolder(Outlook.Application application, Outlook.Explorer explorer, string targetEntryId, string targetStoreId)
+        {
+            Outlook.NameSpace session = null;
+            Outlook.MAPIFolder targetFolder = null;
+            try
+            {
+                try
+                {
+                    session = application.Session;
+                    targetFolder = session.GetFolderFromID(targetEntryId, targetStoreId);
+                }
+                catch (Exception ex)
+                {
+                    QuickMoveLog.Write("go to folder: failed to resolve target folder.", ex);
+                    MessageBox.Show("The selected folder is no longer available. It may have been moved, renamed, or deleted.", "Go to Folder", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                if (targetFolder == null)
+                {
+                    MessageBox.Show("Select a folder to go to.", "Go to Folder", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+
+                try
+                {
+                    explorer.CurrentFolder = targetFolder;
+                    explorer.Activate();
+                }
+                catch (Exception ex)
+                {
+                    QuickMoveLog.Write("go to folder: failed to navigate to the selected folder.", ex);
+                    MessageBox.Show("Could not switch to the selected folder. Check the Quick Move log for details.", "Go to Folder", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
             }
             finally
             {

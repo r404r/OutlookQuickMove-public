@@ -6,8 +6,9 @@ using System.Windows.Forms;
 
 namespace OutlookQuickMove
 {
-    internal sealed class MoveToFolderForm : Form
+    internal sealed class FolderPickerForm : Form
     {
+        private readonly FolderPickerOptions options;
         private readonly List<FolderCandidate> allFolders;
         private readonly Dictionary<string, FrequentTarget> frequentByKey;
         private readonly TextBox textSearch;
@@ -15,8 +16,9 @@ namespace OutlookQuickMove
         private readonly CheckBox checkMarkAsRead;
         private readonly Button buttonOk;
 
-        public MoveToFolderForm(IEnumerable<FolderCandidate> folders)
+        public FolderPickerForm(IEnumerable<FolderCandidate> folders, FolderPickerOptions options)
         {
+            this.options = options ?? FolderPickerOptions.ForQuickMove();
             allFolders = folders == null ? new List<FolderCandidate>() : folders.ToList();
 
             frequentByKey = new Dictionary<string, FrequentTarget>(StringComparer.OrdinalIgnoreCase);
@@ -25,7 +27,7 @@ namespace OutlookQuickMove
                 frequentByKey[target.Key] = target;
             }
 
-            Text = "Quick Move";
+            Text = this.options.Title;
             StartPosition = FormStartPosition.CenterScreen;
             MinimumSize = new Size(560, 420);
             Size = new Size(720, 520);
@@ -79,7 +81,7 @@ namespace OutlookQuickMove
                 Enabled = false,
                 Margin = new Padding(8, 0, 0, 0),
                 Size = new Size(88, 28),
-                Text = "OK"
+                Text = this.options.ConfirmButtonText
             };
             buttonOk.Click += delegate { ConfirmSelection(); };
 
@@ -105,7 +107,11 @@ namespace OutlookQuickMove
 
             layout.Controls.Add(textSearch, 0, 0);
             layout.Controls.Add(listFolders, 0, 1);
-            layout.Controls.Add(checkMarkAsRead, 0, 2);
+            if (this.options.ShowMarkAsRead)
+            {
+                layout.Controls.Add(checkMarkAsRead, 0, 2);
+            }
+
             layout.Controls.Add(buttonPanel, 0, 3);
 
             Controls.Add(layout);
@@ -254,10 +260,17 @@ namespace OutlookQuickMove
 
             // Remember the checkbox state so it is restored next time, even after an
             // Outlook restart. Persisted on confirm so it reflects the last move the user made.
-            MarkAsReadSetting.Save(checkMarkAsRead.Checked);
+            if (options.ShowMarkAsRead)
+            {
+                MarkAsReadSetting.Save(checkMarkAsRead.Checked);
+            }
 
-            // Record this selection so the folder rises in the frequent-targets ordering.
-            FrequentTargetStore.RecordUse(candidate.StoreId, candidate.EntryId, candidate.DisplayPath);
+            // Record this selection so the folder rises in the frequent-targets ordering. Go to
+            // Folder reuses that ordering read-only, so it never records (keeps move data clean).
+            if (options.RecordFrequentUse)
+            {
+                FrequentTargetStore.RecordUse(candidate.StoreId, candidate.EntryId, candidate.DisplayPath);
+            }
 
             SelectedFolderEntryId = candidate.EntryId;
             SelectedFolderStoreId = candidate.StoreId;
