@@ -68,8 +68,11 @@ $vstoUri = ([System.Uri](Get-Item -LiteralPath $vsto).FullName).AbsoluteUri
 可用按钮：
 
 - `Quick Move`：搜索并移动选中的邮件项目。
-- `Settings`：一个带选项卡的对话框，包含 `Data Files`（搜索哪些 Outlook 数据文件）
-  和 `Frequent Folders`（记忆目标文件夹的数量上限和列表）。
+- `Undo Quick Move...`：打开最近移动记录清单，把选中的项目移回原文件夹。仅当存在
+  可撤销的移动历史时启用。
+- `Settings`：一个带选项卡的对话框，包含 `Data Files`（搜索哪些 Outlook 数据文件）、
+  `Frequent Folders`（记忆目标文件夹的数量上限和列表）和 `Undo History`（记忆移动记录
+  的数量上限和清空选项）。
 
 在 Quick Move 对话框中，输入文字筛选文件夹，使用 `Up` / `Down` 切换高亮候选项，
 按 `Enter` 确认。
@@ -88,6 +91,27 @@ Quick Move 会记住你最常移动到的文件夹，并把它们置于搜索结
 ```powershell
 $env:APPDATA\OutlookQuickMove\frequent-targets.txt
 $env:APPDATA\OutlookQuickMove\frequent-targets-max.txt
+```
+
+## 撤销移动
+
+Outlook 原生的 `Ctrl+Z` 无法撤销由加载项执行的移动操作（对象模型没有 API 可以写入
+Outlook 的撤销栈），因此 Quick Move 会维护自己的移动历史。每次移动都会记录每个项目来自
+哪里、去了哪里，以及原始已读/未读状态。
+
+点击 `Undo Quick Move...` 会打开最近移动记录清单（最新在前）。最近一次操作中的项目会默认
+勾选，适合常见的“撤销刚才那次移动”场景；你也可以跨多次操作自由勾选或取消勾选，然后点击
+`Undo Selected` 将它们移回原文件夹（同时恢复已读/未读状态）。如果某个项目已经被删除或再次
+移动导致无法找到，它会被报告并从列表中移除；其他失败会保留在历史中，便于稍后重试。
+`Clear History` 会清空列表，但不会移动任何邮件。
+
+在 `Settings` -> `Undo History` 中，你可以设置记住多少条最近移动记录（0-500，默认 50；
+`0` 会关闭记录，但保留现有历史直到清空），也可以清空历史。数据会在 Outlook 重启后保留，
+存储在：
+
+```powershell
+$env:APPDATA\OutlookQuickMove\undo-history.txt
+$env:APPDATA\OutlookQuickMove\undo-max.txt
 ```
 
 如果尚未保存 store 过滤设置，Quick Move 会搜索所有 Outlook 数据文件中的文件夹。

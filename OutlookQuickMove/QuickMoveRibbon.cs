@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
@@ -11,6 +12,12 @@ namespace OutlookQuickMove
     [ComVisible(true)]
     public sealed class QuickMoveRibbon : Office.IRibbonExtensibility
     {
+        private const string UndoButtonId = "QuickMoveUndoButton";
+
+        // The ribbon UI, captured on load so the Undo button's enabled state can be refreshed
+        // after a move or an undo. Static because moves run through static helpers.
+        private static Office.IRibbonUI ribbonUi;
+
         public string GetCustomUI(string ribbonId)
         {
             ThisAddIn.DebugLog("GetCustomUI ribbonId=" + (ribbonId ?? "(null)"));
@@ -20,7 +27,7 @@ namespace OutlookQuickMove
             }
 
             return @"<?xml version=""1.0"" encoding=""UTF-8""?>
-<customUI xmlns=""http://schemas.microsoft.com/office/2009/07/customui"">
+<customUI xmlns=""http://schemas.microsoft.com/office/2009/07/customui"" onLoad=""OnRibbonLoad"">
   <ribbon>
     <tabs>
       <tab id=""OutlookQuickMoveTab"" label=""Quick Move"" insertAfterMso=""TabMail"">
@@ -30,6 +37,12 @@ namespace OutlookQuickMove
                   size=""large""
                   imageMso=""MoveToFolder""
                   onAction=""OnQuickMove"" />
+          <button id=""QuickMoveUndoButton""
+                  label=""Undo Quick Move...""
+                  size=""large""
+                  imageMso=""Undo""
+                  getEnabled=""OnGetUndoEnabled""
+                  onAction=""OnUndo"" />
           <button id=""QuickMoveSettingsButton""
                   label=""Settings""
                   size=""large""
@@ -65,6 +78,52 @@ namespace OutlookQuickMove
             {
                 QuickMoveLog.Write("settings failed unexpectedly.", ex);
                 MessageBox.Show("Quick Move settings failed unexpectedly. Check the Quick Move log for details.", "Quick Move", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        public void OnRibbonLoad(Office.IRibbonUI ribbonUI)
+        {
+            ribbonUi = ribbonUI;
+        }
+
+        public bool OnGetUndoEnabled(Office.IRibbonControl control)
+        {
+            try
+            {
+                return UndoStore.HasAny();
+            }
+            catch (Exception ex)
+            {
+                QuickMoveLog.Write("failed to evaluate undo availability.", ex);
+                return false;
+            }
+        }
+
+        public void OnUndo(Office.IRibbonControl control)
+        {
+            try
+            {
+                ExecuteUndo();
+            }
+            catch (Exception ex)
+            {
+                QuickMoveLog.Write("undo failed unexpectedly.", ex);
+                MessageBox.Show("Undo failed unexpectedly. Check the Quick Move log for details.", "Quick Move", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private static void InvalidateUndoButton()
+        {
+            try
+            {
+                if (ribbonUi != null)
+                {
+                    ribbonUi.InvalidateControl(UndoButtonId);
+                }
+            }
+            catch (Exception ex)
+            {
+                QuickMoveLog.Write("failed to refresh the undo button.", ex);
             }
         }
 
@@ -206,17 +265,24 @@ namespace OutlookQuickMove
                 var skippedSameFolder = new List<string>();
                 var failures = new List<string>();
 
+                // One id per Quick Move action, so the Undo dialog can group and pre-check the
+                // items moved together.
+                var batchId = Guid.NewGuid().ToString("N");
+                var undoEntries = new List<UndoEntry>();
+
                 foreach (var mail in selectedMail)
                 {
                     var subject = GetMailSubject(mail);
                     try
                     {
-                        if (IsMailAlreadyInTargetFolder(mail, targetIdentity, subject))
+                        var source = CaptureSource(mail, subject);
+                        if (IsSameFolder(source, targetIdentity))
                         {
                             skippedSameFolder.Add(subject);
                             continue;
                         }
 
+                        var originalUnRead = GetUnRead(mail);
                         if (markAsRead)
                         {
                             mail.UnRead = false;
@@ -225,13 +291,44 @@ namespace OutlookQuickMove
 
                         var movedItem = mail.Move(targetFolder);
                         moved++;
-                        ComUtil.Release(movedItem);
+                        try
+                        {
+                            var entry = new UndoEntry(
+                                DateTime.UtcNow,
+                                GetMovedEntryId(movedItem),
+                                targetStoreId,
+                                source.EntryId,
+                                source.StoreId,
+                                source.Path,
+                                targetIdentity.DisplayPath,
+                                originalUnRead,
+                                subject,
+                                batchId);
+                            if (entry.HasUndoIdentity)
+                            {
+                                undoEntries.Add(entry);
+                            }
+                            else
+                            {
+                                QuickMoveLog.Write("moved '" + subject + "' but could not record it for undo (missing folder ids).");
+                            }
+                        }
+                        finally
+                        {
+                            ComUtil.Release(movedItem);
+                        }
                     }
                     catch (Exception ex)
                     {
                         failures.Add(subject);
                         QuickMoveLog.Write("failed to move '" + subject + "'.", ex);
                     }
+                }
+
+                if (undoEntries.Count > 0)
+                {
+                    UndoStore.Append(undoEntries);
+                    InvalidateUndoButton();
                 }
 
                 LogSameFolderSkips(skippedSameFolder, targetIdentity);
@@ -264,7 +361,8 @@ namespace OutlookQuickMove
                 storeResult.Stores,
                 StoreFilterSettings.LoadEnabledStoreKeys(),
                 FrequentTargetStore.LoadHistory(),
-                FrequentTargetStore.GetMaxCount()))
+                FrequentTargetStore.GetMaxCount(),
+                UndoStore.GetMaxCount()))
             {
                 if (form.ShowDialog() != DialogResult.OK)
                 {
@@ -283,8 +381,13 @@ namespace OutlookQuickMove
                 var storeSaved = StoreFilterSettings.SaveEnabledStoreKeys(selectedStoreKeys);
                 var capSaved = FrequentTargetStore.SaveMaxCount(form.MaxFrequentCount);
                 var frequentSaved = FrequentTargetStore.ReplaceAll(form.FrequentTargets);
-                saved = storeSaved && capSaved && frequentSaved;
+                var undoCapSaved = UndoStore.SaveMaxCount(form.MaxUndoCount);
+                var undoCleared = !form.ClearUndoHistoryRequested || UndoStore.Save(new List<UndoEntry>());
+                saved = storeSaved && capSaved && frequentSaved && undoCapSaved && undoCleared;
             }
+
+            // The undo cap or a clear may have changed whether anything is undoable.
+            InvalidateUndoButton();
 
             if (!saved)
             {
@@ -296,6 +399,187 @@ namespace OutlookQuickMove
             {
                 MessageBox.Show("Settings saved. Some Outlook data files could not be read.", "Quick Move", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
+        }
+
+        private static void ExecuteUndo()
+        {
+            var history = UndoStore.LoadAll();
+            if (history.Count == 0)
+            {
+                MessageBox.Show("There are no Quick Move actions to undo.", "Quick Move", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            List<UndoEntry> selected;
+            bool clearAll;
+            using (var form = new UndoHistoryForm(history))
+            {
+                if (form.ShowDialog() != DialogResult.OK)
+                {
+                    return;
+                }
+
+                selected = form.SelectedEntries;
+                clearAll = form.ClearAllRequested;
+            }
+
+            if (clearAll)
+            {
+                UndoStore.Save(new List<UndoEntry>());
+                InvalidateUndoButton();
+                return;
+            }
+
+            if (selected == null || selected.Count == 0)
+            {
+                return;
+            }
+
+            var application = Globals.ThisAddIn.Application;
+            using (BusyCursor.Show())
+            {
+                RestoreEntries(application, history, selected);
+            }
+        }
+
+        private static void RestoreEntries(Outlook.Application application, List<UndoEntry> history, List<UndoEntry> selected)
+        {
+            Outlook.NameSpace session = null;
+            var restored = 0;
+            var notFound = 0;
+            var failed = 0;
+
+            // Keys to drop from history: successfully undone, plus entries whose item no longer
+            // exists (they can never be undone, so keeping them just clutters the list). Entries
+            // that failed for other reasons are kept so the user can retry.
+            var keysToDrop = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            try
+            {
+                session = application.Session;
+                foreach (var entry in selected)
+                {
+                    switch (RestoreOne(session, entry))
+                    {
+                        case RestoreOutcome.Restored:
+                            restored++;
+                            keysToDrop.Add(entry.Key);
+                            break;
+                        case RestoreOutcome.NotFound:
+                            notFound++;
+                            keysToDrop.Add(entry.Key);
+                            break;
+                        default:
+                            failed++;
+                            break;
+                    }
+                }
+            }
+            finally
+            {
+                ComUtil.Release(session);
+            }
+
+            var remaining = history.Where(e => !keysToDrop.Contains(e.Key)).ToList();
+            UndoStore.Save(remaining);
+            InvalidateUndoButton();
+
+            ShowUndoSummary(restored, notFound, failed);
+        }
+
+        private static RestoreOutcome RestoreOne(Outlook.NameSpace session, UndoEntry entry)
+        {
+            object item = null;
+            Outlook.MAPIFolder sourceFolder = null;
+            object movedBack = null;
+            try
+            {
+                try
+                {
+                    item = session.GetItemFromID(entry.MovedEntryId, entry.MovedStoreId);
+                }
+                catch (Exception ex)
+                {
+                    QuickMoveLog.Write("undo: moved item no longer found for '" + entry.Subject + "'.", ex);
+                    return RestoreOutcome.NotFound;
+                }
+
+                var mail = item as Outlook.MailItem;
+                if (mail == null)
+                {
+                    QuickMoveLog.Write("undo: moved item is not a mail item for '" + entry.Subject + "'.");
+                    return RestoreOutcome.NotFound;
+                }
+
+                try
+                {
+                    sourceFolder = session.GetFolderFromID(entry.SourceFolderEntryId, entry.SourceFolderStoreId);
+                }
+                catch (Exception ex)
+                {
+                    QuickMoveLog.Write("undo: original folder no longer available for '" + entry.Subject + "'.", ex);
+                    return RestoreOutcome.Failed;
+                }
+
+                if (sourceFolder == null)
+                {
+                    return RestoreOutcome.Failed;
+                }
+
+                movedBack = mail.Move(sourceFolder);
+                var restoredMail = movedBack as Outlook.MailItem;
+                if (restoredMail != null)
+                {
+                    try
+                    {
+                        restoredMail.UnRead = entry.OriginalUnRead;
+                        restoredMail.Save();
+                    }
+                    catch (Exception ex)
+                    {
+                        QuickMoveLog.Write("undo: failed to restore read state for '" + entry.Subject + "'.", ex);
+                    }
+                }
+
+                return RestoreOutcome.Restored;
+            }
+            catch (Exception ex)
+            {
+                QuickMoveLog.Write("undo: failed to move '" + entry.Subject + "' back.", ex);
+                return RestoreOutcome.Failed;
+            }
+            finally
+            {
+                // 'mail'/'restoredMail' alias 'item'/'movedBack', so release only the originals to
+                // avoid over-releasing the same RCW.
+                ComUtil.Release(movedBack);
+                ComUtil.Release(sourceFolder);
+                ComUtil.Release(item);
+            }
+        }
+
+        private static void ShowUndoSummary(int restored, int notFound, int failed)
+        {
+            if (notFound == 0 && failed == 0)
+            {
+                MessageBox.Show("Moved " + restored + " item(s) back to the original folder(s).", "Quick Move", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var message = new StringBuilder();
+            message.AppendLine("Undo summary:");
+            message.AppendLine("Restored: " + restored);
+            if (notFound > 0)
+            {
+                message.AppendLine("No longer found (removed from history): " + notFound);
+            }
+
+            if (failed > 0)
+            {
+                message.AppendLine("Could not be restored (kept in history): " + failed);
+            }
+
+            MessageBox.Show(message.ToString(), "Quick Move", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
 
         private static void ShowSummaryIfNeeded(int moved, int skippedNonMail, List<string> skippedSameFolder, List<string> failures, List<string> folderErrors)
@@ -353,18 +637,30 @@ namespace OutlookQuickMove
             }
         }
 
-        private static bool IsMailAlreadyInTargetFolder(Outlook.MailItem mail, FolderIdentity targetIdentity, string subject)
+        /// <summary>
+        /// Reads the mail's current (source) folder identity once, before the move, for both the
+        /// same-folder check and the undo record. Never throws; missing fields come back empty.
+        /// </summary>
+        private static SourceInfo CaptureSource(Outlook.MailItem mail, string subject)
         {
             Outlook.MAPIFolder sourceFolder = null;
             try
             {
                 sourceFolder = mail.Parent as Outlook.MAPIFolder;
-                return IsSameFolder(sourceFolder, targetIdentity);
+                if (sourceFolder == null)
+                {
+                    return new SourceInfo(string.Empty, string.Empty, string.Empty);
+                }
+
+                return new SourceInfo(
+                    GetFolderEntryId(sourceFolder),
+                    GetFolderStoreId(sourceFolder),
+                    GetFolderPath(sourceFolder));
             }
             catch (Exception ex)
             {
                 QuickMoveLog.Write("failed to resolve source folder for '" + subject + "'.", ex);
-                return false;
+                return new SourceInfo(string.Empty, string.Empty, string.Empty);
             }
             finally
             {
@@ -372,23 +668,61 @@ namespace OutlookQuickMove
             }
         }
 
-        private static bool IsSameFolder(Outlook.MAPIFolder sourceFolder, FolderIdentity targetIdentity)
+        private static bool IsSameFolder(SourceInfo source, FolderIdentity targetIdentity)
         {
-            if (sourceFolder == null || targetIdentity == null)
+            if (source == null || targetIdentity == null)
             {
                 return false;
             }
 
-            var sourceEntryId = GetFolderEntryId(sourceFolder);
-            if (!string.IsNullOrEmpty(sourceEntryId) && !string.IsNullOrEmpty(targetIdentity.EntryId))
+            if (!string.IsNullOrEmpty(source.EntryId) && !string.IsNullOrEmpty(targetIdentity.EntryId))
             {
-                return string.Equals(sourceEntryId, targetIdentity.EntryId, StringComparison.OrdinalIgnoreCase);
+                return string.Equals(source.EntryId, targetIdentity.EntryId, StringComparison.OrdinalIgnoreCase);
             }
 
-            var sourcePath = NormalizeFolderPath(GetFolderPath(sourceFolder));
-            return !string.IsNullOrEmpty(sourcePath)
+            return !string.IsNullOrEmpty(source.NormalizedPath)
                 && !string.IsNullOrEmpty(targetIdentity.NormalizedPath)
-                && string.Equals(sourcePath, targetIdentity.NormalizedPath, StringComparison.OrdinalIgnoreCase);
+                && string.Equals(source.NormalizedPath, targetIdentity.NormalizedPath, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string GetFolderStoreId(Outlook.MAPIFolder folder)
+        {
+            try
+            {
+                return folder.StoreID;
+            }
+            catch (Exception ex)
+            {
+                QuickMoveLog.Write("failed to read folder store id.", ex);
+                return string.Empty;
+            }
+        }
+
+        private static bool GetUnRead(Outlook.MailItem mail)
+        {
+            try
+            {
+                return mail.UnRead;
+            }
+            catch (Exception ex)
+            {
+                QuickMoveLog.Write("failed to read mail read state.", ex);
+                return false;
+            }
+        }
+
+        private static string GetMovedEntryId(object movedItem)
+        {
+            try
+            {
+                var mail = movedItem as Outlook.MailItem;
+                return mail == null ? string.Empty : mail.EntryID;
+            }
+            catch (Exception ex)
+            {
+                QuickMoveLog.Write("failed to read moved item entry id.", ex);
+                return string.Empty;
+            }
         }
 
         private static FolderIdentity CreateFolderIdentity(Outlook.MAPIFolder folder)
@@ -444,6 +778,32 @@ namespace OutlookQuickMove
             return string.IsNullOrWhiteSpace(folderPath)
                 ? string.Empty
                 : folderPath.Trim().TrimStart('\\');
+        }
+
+        private enum RestoreOutcome
+        {
+            Restored,
+            NotFound,
+            Failed
+        }
+
+        private sealed class SourceInfo
+        {
+            public SourceInfo(string entryId, string storeId, string path)
+            {
+                EntryId = entryId ?? string.Empty;
+                StoreId = storeId ?? string.Empty;
+                Path = path ?? string.Empty;
+                NormalizedPath = NormalizeFolderPath(Path);
+            }
+
+            public string EntryId { get; }
+
+            public string StoreId { get; }
+
+            public string Path { get; }
+
+            public string NormalizedPath { get; }
         }
 
         private sealed class FolderIdentity

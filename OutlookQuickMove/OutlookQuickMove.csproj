@@ -230,6 +230,11 @@
     <Compile Include="StoreCandidate.cs" />
     <Compile Include="StoreEnumerationResult.cs" />
     <Compile Include="StoreFilterSettings.cs" />
+    <Compile Include="UndoEntry.cs" />
+    <Compile Include="UndoStore.cs" />
+    <Compile Include="UndoHistoryForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="SettingsForm.cs">
       <SubType>Form</SubType>
     </Compile>

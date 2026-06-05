@@ -10,6 +10,7 @@ namespace OutlookQuickMove
     /// Quick Move settings, organized into tabs:
     /// - Data Files: which Outlook stores are searched for target folders.
     /// - Frequent Folders: the cap on remembered targets, plus the list with delete actions.
+    /// - Undo History: the cap on remembered moves, plus a clear option.
     /// The form only collects choices; persistence is performed by the caller.
     /// </summary>
     internal sealed class SettingsForm : Form
@@ -18,12 +19,15 @@ namespace OutlookQuickMove
         private readonly CheckedListBox listStores;
         private readonly NumericUpDown numericMaxFrequent;
         private readonly ListBox listFrequent;
+        private readonly NumericUpDown numericMaxUndo;
+        private readonly CheckBox checkClearUndo;
 
         public SettingsForm(
             IEnumerable<StoreCandidate> stores,
             HashSet<string> enabledStoreKeys,
             IEnumerable<FrequentTarget> frequentTargets,
-            int maxFrequentCount)
+            int maxFrequentCount,
+            int maxUndoCount)
         {
             this.stores = stores == null ? new List<StoreCandidate>() : stores.ToList();
 
@@ -70,8 +74,23 @@ namespace OutlookQuickMove
                 SelectionMode = SelectionMode.MultiExtended
             };
 
+            numericMaxUndo = new NumericUpDown
+            {
+                Minimum = 0,
+                Maximum = UndoStore.MaxAllowedCount,
+                Value = ClampUndo(maxUndoCount),
+                Width = 64
+            };
+
+            checkClearUndo = new CheckBox
+            {
+                AutoSize = true,
+                Text = "Clear all remembered undo history when I save"
+            };
+
             tabs.TabPages.Add(BuildDataFilesTab(enabledStoreKeys));
             tabs.TabPages.Add(BuildFrequentTab(frequentTargets));
+            tabs.TabPages.Add(BuildUndoTab());
 
             var buttonOk = new Button
             {
@@ -115,6 +134,10 @@ namespace OutlookQuickMove
         public int MaxFrequentCount { get; private set; }
 
         public List<FrequentTarget> FrequentTargets { get; private set; }
+
+        public int MaxUndoCount { get; private set; }
+
+        public bool ClearUndoHistoryRequested { get; private set; }
 
         private TabPage BuildDataFilesTab(HashSet<string> enabledStoreKeys)
         {
@@ -240,6 +263,49 @@ namespace OutlookQuickMove
             return page;
         }
 
+        private TabPage BuildUndoTab()
+        {
+            var page = new TabPage("Undo History") { Padding = new Padding(8), UseVisualStyleBackColor = true };
+
+            var layout = new TableLayoutPanel { ColumnCount = 1, Dock = DockStyle.Fill, RowCount = 3 };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            var capLabel = new Label { Anchor = AnchorStyles.Left, AutoSize = true, Margin = new Padding(0, 6, 6, 0), Text = "Remember the last" };
+            var movesLabel = new Label { Anchor = AnchorStyles.Left, AutoSize = true, Margin = new Padding(6, 6, 0, 0), Text = "moves for undo (0 = off)" };
+            numericMaxUndo.Margin = new Padding(0, 4, 0, 0);
+
+            var capRow = new FlowLayoutPanel
+            {
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.LeftToRight,
+                Margin = new Padding(0, 0, 0, 6)
+            };
+            capRow.Controls.Add(capLabel);
+            capRow.Controls.Add(numericMaxUndo);
+            capRow.Controls.Add(movesLabel);
+
+            var hint = new Label
+            {
+                AutoSize = true,
+                ForeColor = SystemColors.GrayText,
+                Margin = new Padding(0, 0, 0, 6),
+                Text = "Use the \"Undo Quick Move\" button on the ribbon to move recent items back."
+            };
+
+            checkClearUndo.Margin = new Padding(0, 0, 0, 0);
+
+            layout.Controls.Add(capRow, 0, 0);
+            layout.Controls.Add(hint, 0, 1);
+            layout.Controls.Add(checkClearUndo, 0, 2);
+            page.Controls.Add(layout);
+            return page;
+        }
+
         private void SetAllStoresChecked(bool isChecked)
         {
             for (int i = 0; i < listStores.Items.Count; i++)
@@ -273,6 +339,8 @@ namespace OutlookQuickMove
             SelectedStoreKeys = selectedKeys;
             MaxFrequentCount = (int)numericMaxFrequent.Value;
             FrequentTargets = listFrequent.Items.Cast<FrequentTarget>().ToList();
+            MaxUndoCount = (int)numericMaxUndo.Value;
+            ClearUndoHistoryRequested = checkClearUndo.Checked;
             DialogResult = DialogResult.OK;
             Close();
         }
@@ -285,6 +353,16 @@ namespace OutlookQuickMove
             }
 
             return value > FrequentTargetStore.MaxAllowedCount ? FrequentTargetStore.MaxAllowedCount : value;
+        }
+
+        private static decimal ClampUndo(int value)
+        {
+            if (value < 0)
+            {
+                return 0;
+            }
+
+            return value > UndoStore.MaxAllowedCount ? UndoStore.MaxAllowedCount : value;
         }
     }
 }

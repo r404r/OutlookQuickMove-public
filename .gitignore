@@ -10,6 +10,7 @@ obj/
 
 OutlookQuickMove/bin/
 OutlookQuickMove/obj/
+OutlookQuickMove/release/
 
 # Code-signing keys / certificates must never be committed.
 *.pfx

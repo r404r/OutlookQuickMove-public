@@ -69,8 +69,11 @@ After installation, restart Outlook. The add-in creates its own top-level Ribbon
 Available buttons:
 
 - `Quick Move`: search and move the selected mail items.
-- `Settings`: a tabbed dialog — `Data Files` (which Outlook data files are searched) and
-  `Frequent Folders` (the remembered-targets cap and list).
+- `Undo Quick Move...`: open a checklist of recent moves and send the chosen items back to
+  their original folders. Enabled only when there is move history to undo.
+- `Settings`: a tabbed dialog — `Data Files` (which Outlook data files are searched),
+  `Frequent Folders` (the remembered-targets cap and list), and `Undo History` (the
+  remembered-moves cap and a clear option).
 
 In the Quick Move dialog, type to filter folders, use `Up` / `Down` to change the highlighted candidate, and press `Enter` to confirm.
 
@@ -89,6 +92,28 @@ ordered by usage, and delete or clear entries. The data persists across Outlook 
 ```powershell
 $env:APPDATA\OutlookQuickMove\frequent-targets.txt
 $env:APPDATA\OutlookQuickMove\frequent-targets-max.txt
+```
+
+## Undo a move
+
+Outlook's native `Ctrl+Z` cannot reverse moves made by the add-in (the object model has no API
+to push onto Outlook's undo stack), so Quick Move keeps its own history. Every move records, per
+item, where it came from, where it went, and its original read state.
+
+Press `Undo Quick Move...` to open a checklist of recent moves (newest first). The most recent
+action's items are pre-checked for the common "undo what I just did" case; check or uncheck any
+combination across actions, then press `Undo Selected` to move them back to their original
+folders (read/unread state is restored too). Items that can no longer be found (deleted or moved
+again since) are reported and dropped from the list; anything that fails for another reason is
+kept so you can retry. `Clear History` empties the list without moving any mail.
+
+In `Settings` -> `Undo History` you can set how many recent moves are remembered (0-500, default
+50; `0` turns recording off but keeps existing history until cleared) and clear the history. The
+data persists across Outlook restarts in:
+
+```powershell
+$env:APPDATA\OutlookQuickMove\undo-history.txt
+$env:APPDATA\OutlookQuickMove\undo-max.txt
 ```
 
 If no store filter has been saved yet, Quick Move searches folders from all Outlook data files. The Settings dialog supports selecting multiple data files.
