@@ -52,6 +52,22 @@ namespace OutlookQuickMove
             counts[kind] = existing + 1;
         }
 
+        public void AddRange(FolderEnumerationWarnings other)
+        {
+            if (other == null)
+            {
+                return;
+            }
+
+            messages.AddRange(other.messages);
+            foreach (var pair in other.counts)
+            {
+                int existing;
+                counts.TryGetValue(pair.Key, out existing);
+                counts[pair.Key] = existing + pair.Value;
+            }
+        }
+
         /// <summary>A short human label for a warning category, used in the summary dialog.</summary>
         public static string Describe(FolderWarningKind kind)
         {

@@ -217,6 +217,7 @@
     <Compile Include="FolderCandidate.cs" />
     <Compile Include="FolderEnumerationResult.cs" />
     <Compile Include="FolderEnumerationWarnings.cs" />
+    <Compile Include="FolderListCacheStore.cs" />
     <Compile Include="FrequentTarget.cs" />
     <Compile Include="FrequentTargetStore.cs" />
     <Compile Include="MarkAsReadSetting.cs" />
@@ -232,6 +233,7 @@
     <Compile Include="StoreCandidate.cs" />
     <Compile Include="StoreEnumerationResult.cs" />
     <Compile Include="StoreFilterSettings.cs" />
+    <Compile Include="StoreFilterEntry.cs" />
     <Compile Include="UndoEntry.cs" />
     <Compile Include="UndoStore.cs" />
     <Compile Include="UndoHistoryForm.cs">

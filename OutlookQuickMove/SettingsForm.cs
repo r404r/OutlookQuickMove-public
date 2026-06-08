@@ -131,6 +131,8 @@ namespace OutlookQuickMove
 
         public List<string> SelectedStoreKeys { get; private set; }
 
+        public List<StoreCandidate> SelectedStores { get; private set; }
+
         public int MaxFrequentCount { get; private set; }
 
         public List<FrequentTarget> FrequentTargets { get; private set; }
@@ -337,6 +339,7 @@ namespace OutlookQuickMove
             }
 
             SelectedStoreKeys = selectedKeys;
+            SelectedStores = listStores.CheckedItems.Cast<StoreCandidate>().ToList();
             MaxFrequentCount = (int)numericMaxFrequent.Value;
             FrequentTargets = listFrequent.Items.Cast<FrequentTarget>().ToList();
             MaxUndoCount = (int)numericMaxUndo.Value;

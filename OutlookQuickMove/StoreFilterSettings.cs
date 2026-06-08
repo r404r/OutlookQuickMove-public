@@ -8,6 +8,9 @@ namespace OutlookQuickMove
 {
     internal static class StoreFilterSettings
     {
+        private const string FilterFileName = "store-filter.txt";
+        private const string RootFileName = "store-filter-roots.txt";
+
         public static HashSet<string> LoadEnabledStoreKeys()
         {
             var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -27,6 +30,45 @@ namespace OutlookQuickMove
             }
 
             return keys;
+        }
+
+        public static List<StoreFilterEntry> LoadEnabledStoreEntries(HashSet<string> enabledStoreKeys)
+        {
+            var entries = new List<StoreFilterEntry>();
+            if (enabledStoreKeys == null || enabledStoreKeys.Count == 0)
+            {
+                return entries;
+            }
+
+            string raw;
+            try
+            {
+                var path = QuickMovePaths.DataFile(RootFileName);
+                if (!File.Exists(path))
+                {
+                    return entries;
+                }
+
+                raw = File.ReadAllText(path, Encoding.UTF8);
+            }
+            catch (Exception ex)
+            {
+                QuickMoveLog.Write("Failed to read store root filter settings file.", ex);
+                return entries;
+            }
+
+            foreach (var line in raw.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var entry = ParseEntry(line);
+                if (entry != null
+                    && entry.HasRootIdentity
+                    && enabledStoreKeys.Contains(entry.StoreKey))
+                {
+                    entries.Add(entry);
+                }
+            }
+
+            return entries;
         }
 
         /// <summary>
@@ -56,6 +98,35 @@ namespace OutlookQuickMove
             catch (Exception ex)
             {
                 QuickMoveLog.Write("Failed to save store filter settings.", ex);
+                return false;
+            }
+        }
+
+        public static bool SaveEnabledStoreEntries(IEnumerable<StoreCandidate> stores)
+        {
+            var entries = stores == null
+                ? Enumerable.Empty<StoreCandidate>()
+                : stores.Where(store => store != null && !string.IsNullOrWhiteSpace(store.StoreKey));
+
+            var builder = new StringBuilder();
+            foreach (var store in entries)
+            {
+                builder.Append(EncodeKey(store.StoreKey)).Append('\t')
+                    .Append(EncodeKey(store.DisplayName)).Append('\t')
+                    .Append(EncodeKey(store.RootEntryId)).Append('\t')
+                    .Append(EncodeKey(store.RootStoreId)).Append('\n');
+            }
+
+            try
+            {
+                var settingsPath = QuickMovePaths.DataFile(RootFileName);
+                Directory.CreateDirectory(Path.GetDirectoryName(settingsPath));
+                File.WriteAllText(settingsPath, builder.ToString(), Encoding.UTF8);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                QuickMoveLog.Write("Failed to save store root filter settings.", ex);
                 return false;
             }
         }
@@ -100,7 +171,7 @@ namespace OutlookQuickMove
 
         private static string GetSettingsPath()
         {
-            return QuickMovePaths.DataFile("store-filter.txt");
+            return QuickMovePaths.DataFile(FilterFileName);
         }
 
         private static string DecodeKey(string encodedKey)
@@ -112,6 +183,29 @@ namespace OutlookQuickMove
             catch (FormatException)
             {
                 return encodedKey;
+            }
+        }
+
+        private static StoreFilterEntry ParseEntry(string line)
+        {
+            try
+            {
+                var fields = line.Split('\t');
+                if (fields.Length < 4)
+                {
+                    return null;
+                }
+
+                return new StoreFilterEntry(
+                    DecodeKey(fields[0]),
+                    DecodeKey(fields[1]),
+                    DecodeKey(fields[2]),
+                    DecodeKey(fields[3]));
+            }
+            catch (Exception ex)
+            {
+                QuickMoveLog.Write("Failed to parse a store root filter entry.", ex);
+                return null;
             }
         }
     }

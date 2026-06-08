@@ -215,7 +215,12 @@ namespace OutlookQuickMove
                 string targetEntryId;
                 string targetStoreId;
                 bool markAsRead;
-                using (var form = new FolderPickerForm(folderResult.Folders, FolderPickerOptions.ForQuickMove()))
+                FolderEnumerationWarnings folderWarnings;
+                using (var form = new FolderPickerForm(
+                    folderResult.Folders,
+                    FolderPickerOptions.ForQuickMove(),
+                    folderResult.Warnings,
+                    delegate { return RefreshFolderList(application); }))
                 {
                     if (form.ShowDialog() != DialogResult.OK)
                     {
@@ -225,6 +230,7 @@ namespace OutlookQuickMove
                     targetEntryId = form.SelectedFolderEntryId;
                     targetStoreId = form.SelectedFolderStoreId;
                     markAsRead = form.MarkAsReadBeforeMoving;
+                    folderWarnings = form.FolderWarnings;
                 }
 
                 if (string.IsNullOrEmpty(targetEntryId) || string.IsNullOrEmpty(targetStoreId))
@@ -233,7 +239,7 @@ namespace OutlookQuickMove
                     return;
                 }
 
-                MoveSelectedMail(application, selectedMail, targetEntryId, targetStoreId, markAsRead, skippedNonMail, folderResult.Warnings);
+                MoveSelectedMail(application, selectedMail, targetEntryId, targetStoreId, markAsRead, skippedNonMail, folderWarnings);
             }
             finally
             {
@@ -387,11 +393,14 @@ namespace OutlookQuickMove
                     return;
                 }
 
-                ShowGoToFolderEnumerationWarnings(folderResult.Warnings);
-
                 string targetEntryId;
                 string targetStoreId;
-                using (var form = new FolderPickerForm(folderResult.Folders, FolderPickerOptions.ForGoToFolder()))
+                FolderEnumerationWarnings folderWarnings;
+                using (var form = new FolderPickerForm(
+                    folderResult.Folders,
+                    FolderPickerOptions.ForGoToFolder(),
+                    folderResult.Warnings,
+                    delegate { return RefreshFolderList(application); }))
                 {
                     if (form.ShowDialog() != DialogResult.OK)
                     {
@@ -400,6 +409,7 @@ namespace OutlookQuickMove
 
                     targetEntryId = form.SelectedFolderEntryId;
                     targetStoreId = form.SelectedFolderStoreId;
+                    folderWarnings = form.FolderWarnings;
                 }
 
                 if (string.IsNullOrEmpty(targetEntryId) || string.IsNullOrEmpty(targetStoreId))
@@ -408,12 +418,19 @@ namespace OutlookQuickMove
                     return;
                 }
 
+                ShowGoToFolderEnumerationWarnings(folderWarnings);
                 NavigateToFolder(application, explorer, targetEntryId, targetStoreId);
             }
             finally
             {
                 ComUtil.Release(explorer);
             }
+        }
+
+        private static FolderEnumerationResult RefreshFolderList(Outlook.Application application)
+        {
+            OutlookFolderEnumerator.InvalidateCache();
+            return OutlookFolderEnumerator.GetMailFolders(application);
         }
 
         private static void ShowGoToFolderEnumerationWarnings(FolderEnumerationWarnings folderWarnings)
@@ -507,15 +524,19 @@ namespace OutlookQuickMove
                 var selectedStoreKeys = form.SelectedStoreKeys.Count == storeResult.Stores.Count
                     ? new List<string>()
                     : form.SelectedStoreKeys;
+                var selectedStores = selectedStoreKeys.Count == 0
+                    ? new List<StoreCandidate>()
+                    : form.SelectedStores;
 
                 // Save the new cap first (it trims the stored list), then replace the list with
                 // whatever the user left after any deletions.
                 var storeSaved = StoreFilterSettings.SaveEnabledStoreKeys(selectedStoreKeys);
+                var storeRootSaved = StoreFilterSettings.SaveEnabledStoreEntries(selectedStores);
                 var capSaved = FrequentTargetStore.SaveMaxCount(form.MaxFrequentCount);
                 var frequentSaved = FrequentTargetStore.ReplaceAll(form.FrequentTargets);
                 var undoCapSaved = UndoStore.SaveMaxCount(form.MaxUndoCount);
                 var undoCleared = !form.ClearUndoHistoryRequested || UndoStore.Save(new List<UndoEntry>());
-                saved = storeSaved && capSaved && frequentSaved && undoCapSaved && undoCleared;
+                saved = storeSaved && storeRootSaved && capSaved && frequentSaved && undoCapSaved && undoCleared;
             }
 
             // The undo cap or a clear may have changed whether anything is undoable.

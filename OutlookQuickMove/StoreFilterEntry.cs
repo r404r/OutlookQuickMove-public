@@ -1,17 +1,16 @@
 namespace OutlookQuickMove
 {
     /// <summary>
-    /// Describes an Outlook data file (store) for display and filtering.
-    /// Only the values needed by the UI are captured; the live <c>Store</c> COM object is
-    /// released immediately after enumeration rather than retained on this instance.
+    /// Persisted identity for a selected Outlook data file. The store key remains the stable
+    /// user-facing filter key; the root folder identity lets Quick Move enter the selected store
+    /// directly without first touching every store in the Outlook profile.
     /// </summary>
-    internal sealed class StoreCandidate
+    internal sealed class StoreFilterEntry
     {
-        public StoreCandidate(string storeKey, string displayName, string displayText, string rootEntryId, string rootStoreId)
+        public StoreFilterEntry(string storeKey, string displayName, string rootEntryId, string rootStoreId)
         {
             StoreKey = storeKey ?? string.Empty;
             DisplayName = displayName ?? string.Empty;
-            DisplayText = displayText ?? string.Empty;
             RootEntryId = rootEntryId ?? string.Empty;
             RootStoreId = rootStoreId ?? string.Empty;
         }
@@ -20,8 +19,6 @@ namespace OutlookQuickMove
 
         public string DisplayName { get; }
 
-        public string DisplayText { get; }
-
         public string RootEntryId { get; }
 
         public string RootStoreId { get; }
@@ -29,11 +26,6 @@ namespace OutlookQuickMove
         public bool HasRootIdentity
         {
             get { return !string.IsNullOrEmpty(RootEntryId) && !string.IsNullOrEmpty(RootStoreId); }
-        }
-
-        public override string ToString()
-        {
-            return DisplayText;
         }
     }
 }

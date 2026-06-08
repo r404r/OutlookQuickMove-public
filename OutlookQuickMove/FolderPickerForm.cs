@@ -9,16 +9,25 @@ namespace OutlookQuickMove
     internal sealed class FolderPickerForm : Form
     {
         private readonly FolderPickerOptions options;
-        private readonly List<FolderCandidate> allFolders;
+        private readonly Func<FolderEnumerationResult> refreshFolders;
+        private List<FolderCandidate> allFolders;
+        private FolderEnumerationWarnings folderWarnings;
         private readonly Dictionary<string, FrequentTarget> frequentByKey;
         private readonly TextBox textSearch;
         private readonly ListBox listFolders;
         private readonly CheckBox checkMarkAsRead;
         private readonly Button buttonOk;
+        private readonly Button buttonRefresh;
 
-        public FolderPickerForm(IEnumerable<FolderCandidate> folders, FolderPickerOptions options)
+        public FolderPickerForm(
+            IEnumerable<FolderCandidate> folders,
+            FolderPickerOptions options,
+            FolderEnumerationWarnings folderWarnings,
+            Func<FolderEnumerationResult> refreshFolders)
         {
             this.options = options ?? FolderPickerOptions.ForQuickMove();
+            this.folderWarnings = folderWarnings ?? new FolderEnumerationWarnings();
+            this.refreshFolders = refreshFolders;
             allFolders = folders == null ? new List<FolderCandidate>() : folders.ToList();
 
             frequentByKey = new Dictionary<string, FrequentTarget>(StringComparer.OrdinalIgnoreCase);
@@ -54,6 +63,29 @@ namespace OutlookQuickMove
             };
             textSearch.TextChanged += delegate { ApplyFilter(); };
             textSearch.KeyDown += HandleSearchKeyDown;
+
+            buttonRefresh = new Button
+            {
+                Enabled = this.refreshFolders != null,
+                Margin = new Padding(8, 0, 0, 8),
+                Size = new Size(88, 28),
+                Text = "Refresh"
+            };
+            buttonRefresh.Click += delegate { RefreshFolderList(); };
+
+            var searchPanel = new TableLayoutPanel
+            {
+                ColumnCount = 2,
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0),
+                Padding = new Padding(0),
+                RowCount = 1
+            };
+            searchPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            searchPanel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            searchPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            searchPanel.Controls.Add(textSearch, 0, 0);
+            searchPanel.Controls.Add(buttonRefresh, 1, 0);
 
             listFolders = new ListBox
             {
@@ -105,7 +137,7 @@ namespace OutlookQuickMove
             buttonPanel.Controls.Add(buttonCancel);
             buttonPanel.Controls.Add(buttonOk);
 
-            layout.Controls.Add(textSearch, 0, 0);
+            layout.Controls.Add(searchPanel, 0, 0);
             layout.Controls.Add(listFolders, 0, 1);
             if (this.options.ShowMarkAsRead)
             {
@@ -130,6 +162,11 @@ namespace OutlookQuickMove
         public bool MarkAsReadBeforeMoving
         {
             get { return checkMarkAsRead.Checked; }
+        }
+
+        public FolderEnumerationWarnings FolderWarnings
+        {
+            get { return folderWarnings; }
         }
 
         private void ApplyFilter()
@@ -205,6 +242,74 @@ namespace OutlookQuickMove
         private void UpdateOkState()
         {
             buttonOk.Enabled = listFolders.SelectedItem is FolderCandidate;
+        }
+
+        private void RefreshFolderList()
+        {
+            if (refreshFolders == null)
+            {
+                return;
+            }
+
+            var selectedKey = GetSelectedFolderKey();
+            buttonRefresh.Enabled = false;
+            buttonOk.Enabled = false;
+            try
+            {
+                FolderEnumerationResult refreshed;
+                using (BusyCursor.Show())
+                {
+                    refreshed = refreshFolders();
+                }
+
+                if (refreshed == null || refreshed.Folders.Count == 0)
+                {
+                    MessageBox.Show("No suitable mail folders were found after refresh.", options.Title, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                allFolders = refreshed.Folders.ToList();
+                folderWarnings = refreshed.Warnings ?? new FolderEnumerationWarnings();
+                QuickMoveLog.Write("folder picker refreshed: folders=" + allFolders.Count
+                    + ", warnings=" + folderWarnings.Count + ".");
+                ApplyFilter();
+                RestoreSelection(selectedKey);
+            }
+            catch (Exception ex)
+            {
+                QuickMoveLog.Write("folder picker refresh failed.", ex);
+                MessageBox.Show("The folder list could not be refreshed. Check the Quick Move log for details.", options.Title, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+            finally
+            {
+                buttonRefresh.Enabled = true;
+                textSearch.Focus();
+            }
+        }
+
+        private string GetSelectedFolderKey()
+        {
+            var selected = listFolders.SelectedItem as FolderCandidate;
+            return selected == null ? string.Empty : FrequentTarget.BuildKey(selected.StoreId, selected.EntryId);
+        }
+
+        private void RestoreSelection(string folderKey)
+        {
+            if (string.IsNullOrEmpty(folderKey))
+            {
+                return;
+            }
+
+            for (int i = 0; i < listFolders.Items.Count; i++)
+            {
+                var folder = listFolders.Items[i] as FolderCandidate;
+                if (folder != null
+                    && string.Equals(FrequentTarget.BuildKey(folder.StoreId, folder.EntryId), folderKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    listFolders.SelectedIndex = i;
+                    return;
+                }
+            }
         }
 
         private void HandleSearchKeyDown(object sender, KeyEventArgs e)
