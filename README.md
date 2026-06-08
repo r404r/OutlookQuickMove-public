@@ -139,6 +139,17 @@ $env:APPDATA\OutlookQuickMove\store-filter.txt
 
 PST/OST-backed stores are matched by file path so the selection survives Outlook restarts and VSTO deployment refreshes.
 
+### Folder list caching
+
+Building the folder list walks every folder in every selected data file, which is the heaviest
+operation, so the result is cached and reused for a short window (about 2 minutes) instead of being
+rebuilt on every Quick Move / Go to Folder. This noticeably reduces memory churn and MAPI resource
+pressure on large or multi-mailbox profiles. The cache refreshes automatically after the window, or
+immediately when you save Settings. A folder you create or rename directly in Outlook may therefore
+take up to about 2 minutes to appear; save Settings to refresh it right away. If some folders cannot
+be read during enumeration, the Quick Move summary groups the warnings by cause and points you to
+the diagnostic log for the exact folders.
+
 The `Mark as read before moving` checkbox remembers its last confirmed state across dialog
 closes and Outlook restarts, persisted next to the store filter in:
 

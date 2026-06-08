@@ -233,7 +233,7 @@ namespace OutlookQuickMove
                     return;
                 }
 
-                MoveSelectedMail(application, selectedMail, targetEntryId, targetStoreId, markAsRead, skippedNonMail, folderResult.Errors);
+                MoveSelectedMail(application, selectedMail, targetEntryId, targetStoreId, markAsRead, skippedNonMail, folderResult.Warnings);
             }
             finally
             {
@@ -254,7 +254,7 @@ namespace OutlookQuickMove
             string targetStoreId,
             bool markAsRead,
             int skippedNonMail,
-            List<string> folderErrors)
+            FolderEnumerationWarnings folderWarnings)
         {
             Outlook.NameSpace session = null;
             Outlook.MAPIFolder targetFolder = null;
@@ -350,7 +350,7 @@ namespace OutlookQuickMove
                 }
 
                 LogSameFolderSkips(skippedSameFolder, targetIdentity);
-                ShowSummaryIfNeeded(moved, skippedNonMail, skippedSameFolder, failures, folderErrors);
+                ShowSummaryIfNeeded(moved, skippedNonMail, skippedSameFolder, failures, folderWarnings);
             }
             finally
             {
@@ -380,14 +380,14 @@ namespace OutlookQuickMove
 
                 if (folderResult.Folders.Count == 0)
                 {
-                    var message = folderResult.Errors.Count > 0
+                    var message = folderResult.Warnings.Count > 0
                         ? "No suitable mail folders were found. Some Outlook data files could not be read. Check the Quick Move log for details."
                         : "No suitable mail folders were found.";
                     MessageBox.Show(message, "Go to Folder", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
 
-                ShowGoToFolderEnumerationWarnings(folderResult.Errors);
+                ShowGoToFolderEnumerationWarnings(folderResult.Warnings);
 
                 string targetEntryId;
                 string targetStoreId;
@@ -416,18 +416,19 @@ namespace OutlookQuickMove
             }
         }
 
-        private static void ShowGoToFolderEnumerationWarnings(List<string> folderErrors)
+        private static void ShowGoToFolderEnumerationWarnings(FolderEnumerationWarnings folderWarnings)
         {
-            if (folderErrors == null || folderErrors.Count == 0)
+            if (folderWarnings == null || folderWarnings.Count == 0)
             {
                 return;
             }
 
-            MessageBox.Show(
-                "Some Outlook data files could not be read, so the folder list may be incomplete. Check the Quick Move log for details.",
-                "Go to Folder",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
+            var message = new StringBuilder();
+            message.AppendLine("Some folders could not be read, so the list may be incomplete (" + folderWarnings.Count + "):");
+            message.Append(BuildWarningBreakdown(folderWarnings));
+            message.AppendLine("Details are in the log: %TEMP%\\OutlookQuickMove.log");
+
+            MessageBox.Show(message.ToString(), "Go to Folder", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private static void NavigateToFolder(Outlook.Application application, Outlook.Explorer explorer, string targetEntryId, string targetStoreId)
@@ -519,6 +520,10 @@ namespace OutlookQuickMove
 
             // The undo cap or a clear may have changed whether anything is undoable.
             InvalidateUndoButton();
+
+            // The data-file selection may have changed, so drop the cached folder list and
+            // re-enumerate on the next Quick Move / Go to Folder.
+            OutlookFolderEnumerator.InvalidateCache();
 
             if (!saved)
             {
@@ -713,9 +718,10 @@ namespace OutlookQuickMove
             MessageBox.Show(message.ToString(), "Quick Move", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
 
-        private static void ShowSummaryIfNeeded(int moved, int skippedNonMail, List<string> skippedSameFolder, List<string> failures, List<string> folderErrors)
+        private static void ShowSummaryIfNeeded(int moved, int skippedNonMail, List<string> skippedSameFolder, List<string> failures, FolderEnumerationWarnings folderWarnings)
         {
-            if (skippedNonMail == 0 && skippedSameFolder.Count == 0 && failures.Count == 0 && folderErrors.Count == 0)
+            var warningCount = folderWarnings == null ? 0 : folderWarnings.Count;
+            if (skippedNonMail == 0 && skippedSameFolder.Count == 0 && failures.Count == 0 && warningCount == 0)
             {
                 return;
             }
@@ -747,12 +753,34 @@ namespace OutlookQuickMove
                 }
             }
 
-            if (folderErrors.Count > 0)
+            if (warningCount > 0)
             {
-                message.AppendLine("Folder enumeration warnings: " + folderErrors.Count);
+                message.AppendLine("Folder enumeration warnings: " + warningCount);
+                message.Append(BuildWarningBreakdown(folderWarnings));
+                message.AppendLine("Details are in the log: %TEMP%\\OutlookQuickMove.log");
             }
 
             MessageBox.Show(message.ToString(), "Quick Move", MessageBoxButtons.OK, failures.Count > 0 || skippedSameFolder.Count > 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
+        }
+
+        /// <summary>
+        /// Renders folder-enumeration warning counts grouped by cause (one indented line per
+        /// category), so the user sees what kind of folders were skipped rather than a bare total.
+        /// </summary>
+        private static string BuildWarningBreakdown(FolderEnumerationWarnings folderWarnings)
+        {
+            var breakdown = new StringBuilder();
+            if (folderWarnings == null)
+            {
+                return breakdown.ToString();
+            }
+
+            foreach (var pair in folderWarnings.Counts.OrderByDescending(p => p.Value))
+            {
+                breakdown.AppendLine("- " + FolderEnumerationWarnings.Describe(pair.Key) + ": " + pair.Value);
+            }
+
+            return breakdown.ToString();
         }
 
         private static string GetMailSubject(Outlook.MailItem mail)

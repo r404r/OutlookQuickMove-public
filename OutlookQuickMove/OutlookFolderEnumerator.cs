@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Outlook = Microsoft.Office.Interop.Outlook;
 
 namespace OutlookQuickMove
@@ -12,20 +13,66 @@ namespace OutlookQuickMove
             "RSS Feeds"
         };
 
+        // A full folder enumeration opens (and releases) a large number of MAPI objects, so doing it
+        // on every Quick Move / Go to Folder is wasteful and adds MAPI resource pressure. The result
+        // holds no COM objects (only strings), so it is safe to cache and reuse for a short window.
+        // The cache is invalidated when the enabled-store selection changes (signature mismatch),
+        // when it ages past the TTL, or explicitly via InvalidateCache (e.g. after Settings save).
+        private static readonly TimeSpan CacheLifetime = TimeSpan.FromMinutes(2);
+        private static readonly object CacheGate = new object();
+        private static FolderEnumerationResult cachedResult;
+        private static string cachedSignature;
+        private static DateTime cachedAtUtc;
+
         public static FolderEnumerationResult GetMailFolders(Outlook.Application application)
         {
-            return GetMailFolders(application, StoreFilterSettings.LoadEnabledStoreKeys());
+            var enabledStoreKeys = StoreFilterSettings.LoadEnabledStoreKeys();
+            var signature = BuildSignature(enabledStoreKeys);
+
+            lock (CacheGate)
+            {
+                if (cachedResult != null
+                    && string.Equals(cachedSignature, signature, StringComparison.Ordinal)
+                    && DateTime.UtcNow - cachedAtUtc < CacheLifetime)
+                {
+                    return cachedResult;
+                }
+            }
+
+            var result = GetMailFolders(application, enabledStoreKeys);
+
+            lock (CacheGate)
+            {
+                cachedResult = result;
+                cachedSignature = signature;
+                cachedAtUtc = DateTime.UtcNow;
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Drops the cached folder list so the next request re-enumerates. Call after anything that
+        /// can change the available folders or the data-file selection (e.g. saving Settings).
+        /// </summary>
+        public static void InvalidateCache()
+        {
+            lock (CacheGate)
+            {
+                cachedResult = null;
+                cachedSignature = null;
+            }
         }
 
         public static FolderEnumerationResult GetMailFolders(Outlook.Application application, HashSet<string> enabledStoreKeys)
         {
             var folders = new List<FolderCandidate>();
-            var errors = new List<string>();
+            var warnings = new FolderEnumerationWarnings();
 
             if (application == null)
             {
-                errors.Add("Outlook application is unavailable.");
-                return new FolderEnumerationResult(folders, errors);
+                warnings.Add(FolderWarningKind.StoreUnreadable, "Outlook application is unavailable.");
+                return new FolderEnumerationResult(folders, warnings);
             }
 
             Outlook.NameSpace session = null;
@@ -37,11 +84,11 @@ namespace OutlookQuickMove
             }
             catch (Exception ex)
             {
-                errors.Add("Could not read Outlook stores.");
+                warnings.Add(FolderWarningKind.StoreUnreadable, "Could not read Outlook stores.");
                 QuickMoveLog.Write("failed to read Outlook stores.", ex);
-                ComUtil.Release(stores);
-                ComUtil.Release(session);
-                return new FolderEnumerationResult(folders, errors);
+                ComUtil.FinalRelease(stores);
+                ComUtil.FinalRelease(session);
+                return new FolderEnumerationResult(folders, warnings);
             }
 
             try
@@ -64,29 +111,58 @@ namespace OutlookQuickMove
                         }
 
                         root = store.GetRootFolder();
-                        CollectFolders(root, displayName, 0, false, folders, errors);
+                        CollectFolders(root, displayName, 0, false, folders, warnings);
                     }
                     catch (Exception ex)
                     {
                         var storeName = GetStoreDisplayName(store, null);
-                        errors.Add("Could not enumerate store: " + storeName);
+                        warnings.Add(FolderWarningKind.StoreUnreadable, "Could not enumerate store: " + storeName);
                         QuickMoveLog.Write("failed to enumerate store '" + storeName + "'.", ex);
                     }
                     finally
                     {
-                        ComUtil.Release(root);
-                        ComUtil.Release(store);
+                        ComUtil.FinalRelease(root);
+                        ComUtil.FinalRelease(store);
                     }
                 }
             }
             finally
             {
-                ComUtil.Release(stores);
-                ComUtil.Release(session);
+                ComUtil.FinalRelease(stores);
+                ComUtil.FinalRelease(session);
+
+                // The walk churned through many short-lived MAPI wrappers; reclaim promptly so the
+                // resources are returned to MAPI instead of lingering until the next GC.
+                ReclaimComResources();
             }
 
             folders.Sort((left, right) => string.Compare(left.DisplayPath, right.DisplayPath, StringComparison.OrdinalIgnoreCase));
-            return new FolderEnumerationResult(folders, errors);
+            return new FolderEnumerationResult(folders, warnings);
+        }
+
+        private static string BuildSignature(HashSet<string> enabledStoreKeys)
+        {
+            if (enabledStoreKeys == null || enabledStoreKeys.Count == 0)
+            {
+                // Empty filter means "all stores"; distinguish it from an explicit selection.
+                return "(all)";
+            }
+
+            return string.Join("\n", enabledStoreKeys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase));
+        }
+
+        private static void ReclaimComResources()
+        {
+            try
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+            }
+            catch (Exception ex)
+            {
+                QuickMoveLog.Write("failed to reclaim COM resources after enumeration.", ex);
+            }
         }
 
         public static StoreEnumerationResult GetStores(Outlook.Application application)
@@ -111,8 +187,8 @@ namespace OutlookQuickMove
             {
                 errors.Add("Could not read Outlook stores.");
                 QuickMoveLog.Write("failed to read Outlook stores.", ex);
-                ComUtil.Release(stores);
-                ComUtil.Release(session);
+                ComUtil.FinalRelease(stores);
+                ComUtil.FinalRelease(session);
                 return new StoreEnumerationResult(storesList, errors);
             }
 
@@ -135,14 +211,15 @@ namespace OutlookQuickMove
                     }
                     finally
                     {
-                        ComUtil.Release(store);
+                        ComUtil.FinalRelease(store);
                     }
                 }
             }
             finally
             {
-                ComUtil.Release(stores);
-                ComUtil.Release(session);
+                ComUtil.FinalRelease(stores);
+                ComUtil.FinalRelease(session);
+                ReclaimComResources();
             }
 
             storesList.Sort((left, right) => string.Compare(left.DisplayText, right.DisplayText, StringComparison.OrdinalIgnoreCase));
@@ -155,7 +232,7 @@ namespace OutlookQuickMove
             int depth,
             bool excludedBranch,
             List<FolderCandidate> folders,
-            List<string> errors)
+            FolderEnumerationWarnings warnings)
         {
             if (folder == null)
             {
@@ -175,7 +252,7 @@ namespace OutlookQuickMove
                 }
                 else
                 {
-                    errors.Add("Could not identify folder: " + displayPath);
+                    warnings.Add(FolderWarningKind.FolderIdentityMissing, "Could not identify folder: " + displayPath);
                 }
             }
 
@@ -186,7 +263,7 @@ namespace OutlookQuickMove
             }
             catch (Exception ex)
             {
-                errors.Add("Could not read child folders under: " + displayPath);
+                warnings.Add(FolderWarningKind.SubfoldersUnreadable, "Could not read child folders under: " + displayPath);
                 QuickMoveLog.Write("failed to read child folders under '" + displayPath + "'.", ex);
                 return;
             }
@@ -207,22 +284,22 @@ namespace OutlookQuickMove
 
                         var childName = GetFolderName(child);
                         var childPath = string.IsNullOrEmpty(displayPath) ? childName : displayPath + "\\" + childName;
-                        CollectFolders(child, childPath, depth + 1, isExcludedBranch, folders, errors);
+                        CollectFolders(child, childPath, depth + 1, isExcludedBranch, folders, warnings);
                     }
                     catch (Exception ex)
                     {
-                        errors.Add("Could not enumerate a child folder under: " + displayPath);
+                        warnings.Add(FolderWarningKind.SubfoldersUnreadable, "Could not enumerate a child folder under: " + displayPath);
                         QuickMoveLog.Write("failed to enumerate a child folder under '" + displayPath + "'.", ex);
                     }
                     finally
                     {
-                        ComUtil.Release(child);
+                        ComUtil.FinalRelease(child);
                     }
                 }
             }
             finally
             {
-                ComUtil.Release(childFolders);
+                ComUtil.FinalRelease(childFolders);
             }
         }
 

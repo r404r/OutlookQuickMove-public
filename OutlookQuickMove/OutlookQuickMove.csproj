@@ -216,6 +216,7 @@
     <Compile Include="BusyCursor.cs" />
     <Compile Include="FolderCandidate.cs" />
     <Compile Include="FolderEnumerationResult.cs" />
+    <Compile Include="FolderEnumerationWarnings.cs" />
     <Compile Include="FrequentTarget.cs" />
     <Compile Include="FrequentTargetStore.cs" />
     <Compile Include="MarkAsReadSetting.cs" />

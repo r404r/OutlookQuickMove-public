@@ -4,14 +4,14 @@ namespace OutlookQuickMove
 {
     internal sealed class FolderEnumerationResult
     {
-        public FolderEnumerationResult(List<FolderCandidate> folders, List<string> errors)
+        public FolderEnumerationResult(List<FolderCandidate> folders, FolderEnumerationWarnings warnings)
         {
             Folders = folders;
-            Errors = errors;
+            Warnings = warnings ?? new FolderEnumerationWarnings();
         }
 
         public List<FolderCandidate> Folders { get; }
 
-        public List<string> Errors { get; }
+        public FolderEnumerationWarnings Warnings { get; }
     }
 }
