@@ -54,7 +54,7 @@ namespace OutlookQuickMove
                     long ticks;
                     if (!long.TryParse(lines[2], out ticks))
                     {
-                        QuickMoveLog.Write("ignored folder list cache because its timestamp is invalid.");
+                        QuickMoveLog.WriteVerbose("ignored folder list cache because its timestamp is invalid.");
                         return folders;
                     }
 
@@ -62,14 +62,14 @@ namespace OutlookQuickMove
                     var age = DateTime.UtcNow - savedAtUtc;
                     if (age < TimeSpan.Zero)
                     {
-                        QuickMoveLog.Write("ignored folder list cache because its timestamp is in the future.");
+                        QuickMoveLog.WriteVerbose("ignored folder list cache because its timestamp is in the future.");
                         return folders;
                     }
 
                     cacheAgeMs = (long)age.TotalMilliseconds;
                     if (age > maxAge)
                     {
-                        QuickMoveLog.Write("ignored folder list cache because it expired: ageMs="
+                        QuickMoveLog.WriteVerbose("ignored folder list cache because it expired: ageMs="
                             + cacheAgeMs + ", maxAgeMs=" + (long)maxAge.TotalMilliseconds + ".");
                         return folders;
                     }
@@ -92,7 +92,7 @@ namespace OutlookQuickMove
 
             if (folders.Count > 0)
             {
-                QuickMoveLog.Write("loaded " + folders.Count + " folder candidate(s) from disk cache: ageMs="
+                QuickMoveLog.WriteVerbose("loaded " + folders.Count + " folder candidate(s) from disk cache: ageMs="
                     + cacheAgeMs + ".");
             }
 
@@ -125,7 +125,7 @@ namespace OutlookQuickMove
                     WriteAllTextAtomically(path, builder.ToString());
                 }
 
-                QuickMoveLog.Write("saved " + folders.Count + " folder candidate(s) to disk cache.");
+                QuickMoveLog.WriteVerbose("saved " + folders.Count + " folder candidate(s) to disk cache.");
             }
             catch (Exception ex)
             {
@@ -143,7 +143,7 @@ namespace OutlookQuickMove
                     if (File.Exists(path))
                     {
                         File.Delete(path);
-                        QuickMoveLog.Write("cleared folder list cache.");
+                        QuickMoveLog.WriteVerbose("cleared folder list cache.");
                     }
                 }
             }

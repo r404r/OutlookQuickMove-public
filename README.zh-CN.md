@@ -13,6 +13,7 @@
   按 `Enter` 移动。支持一封或多封已选邮件。
 - **Go to Folder**：搜索同一批文件夹，并把当前 Outlook 窗口切换到选中的文件夹，
   不移动任何邮件。
+- **Go to Mail Folder**：从选中的邮件跳转到包含它的文件夹。
 - **常用文件夹优先**：最常使用的目标文件夹会浮到顶部，让常见移动操作只需一次按键
   就能完成（搜索框为空时会预选最常用的文件夹）。
 - **移动前标记为已读**：可选，并且会在重启后记住你的选择。
@@ -72,6 +73,8 @@ $vstoUri = ([System.Uri](Get-Item -LiteralPath $vsto).FullName).AbsoluteUri
 - `Quick Move`：搜索并移动选中的邮件项目。
 - `Go to Folder`：搜索文件夹并把当前 Outlook 窗口切换到该文件夹（只导航，不移动邮件）。
   它使用与 Quick Move 相同的数据文件选择和输入筛选对话框。
+- `Go to Mail Folder`：把当前 Outlook 窗口切换到第一个选中邮件所在的文件夹。适合在
+  Outlook 搜索结果中找到邮件后快速跳回原文件夹。
 - `Undo Quick Move...`：打开最近移动记录清单，把选中的项目移回原文件夹。仅当存在
   可撤销的移动历史时启用。
 - `Settings`：一个带选项卡的对话框，包含 `Data Files`（搜索哪些 Outlook 数据文件）、
@@ -88,6 +91,12 @@ $vstoUri = ([System.Uri](Get-Item -LiteralPath $vsto).FullName).AbsoluteUri
 Outlook 窗口切换到选中的文件夹。它搜索的文件夹范围与 Quick Move 相同（保存的 Data Files
 选择），并会把最常用的 Quick Move 目标文件夹置顶以便快速访问；但它不会修改任何邮件，
 也不会记录一次移动，因此不会影响常用文件夹统计或撤销历史。
+
+## 跳转到邮件所在文件夹
+
+`Go to Mail Folder` 从当前 Outlook 选择开始，而不是打开文件夹选择器。选中一封邮件后点击
+按钮，Outlook 会切换到包含该邮件的文件夹。如果选中了多封邮件，Outlook 会先请求确认，然后
+使用第一封邮件。如果该邮件已经位于当前文件夹，加载项会显示一条简短提示并跳过导航。
 
 ## 常用文件夹
 
@@ -136,6 +145,21 @@ $env:APPDATA\OutlookQuickMove\store-filter.txt
 ```
 
 PST/OST 支持的 store 会按文件路径匹配，因此该选择可以在 Outlook 重启和 VSTO 部署刷新后保留。
+
+### 文件夹列表缓存
+
+构建文件夹列表需要遍历每个已选数据文件中的所有文件夹，这是最重的操作。因此结果会缓存并在
+短时间窗口内复用（约 2 分钟），而不是每次 Quick Move / Go to Folder 都重新构建。这样可以
+明显减少大型或多邮箱配置下的内存抖动和 MAPI 资源压力。缓存会在窗口结束后自动刷新，也会在
+保存 Settings 后立即刷新。如果你直接在 Outlook 中创建或重命名文件夹，可能需要约 2 分钟才会
+出现；保存 Settings 可以立即刷新。如果枚举过程中有部分文件夹无法读取，Quick Move 摘要会按
+原因分组显示警告，并提示查看诊断日志中的具体文件夹。
+
+在包含许多或很大的数据文件的配置中，Quick Move 会避免每次都打开整组数据文件（这可能触发
+Outlook 的“共享资源耗尽”错误）。它会先记录每个数据文件的位置，之后只打开实际需要的内容。
+新添加的数据文件会自动纳入；移除的数据文件会在下次打开 Settings 或点击 `Refresh` 时清理。
+如果新添加的数据文件或文件夹没有出现，请在对话框中点击 `Refresh`（或打开并保存 Settings）
+来重建列表。
 
 `Mark as read before moving` 复选框会记住上一次确认后的状态，并在关闭对话框和重启 Outlook
 后继续保留。它与 store 过滤设置一起存储在：

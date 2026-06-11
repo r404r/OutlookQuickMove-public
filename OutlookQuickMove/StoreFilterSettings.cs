@@ -10,6 +10,7 @@ namespace OutlookQuickMove
     {
         private const string FilterFileName = "store-filter.txt";
         private const string RootFileName = "store-filter-roots.txt";
+        private static readonly object RootGate = new object();
 
         public static HashSet<string> LoadEnabledStoreKeys()
         {
@@ -32,14 +33,54 @@ namespace OutlookQuickMove
             return keys;
         }
 
+        /// <summary>
+        /// The saved store root identities to enumerate. An empty filter means "all stores", so in
+        /// that case every saved root is returned (this is what lets the default configuration use
+        /// the saved-root fast path instead of binding the whole <c>Stores</c> collection). With an
+        /// explicit subset, only the enabled keys are returned. Only entries with a usable root
+        /// identity are included.
+        /// </summary>
         public static List<StoreFilterEntry> LoadEnabledStoreEntries(HashSet<string> enabledStoreKeys)
         {
-            var entries = new List<StoreFilterEntry>();
-            if (enabledStoreKeys == null || enabledStoreKeys.Count == 0)
+            var result = new List<StoreFilterEntry>();
+            var filterIsAll = enabledStoreKeys == null || enabledStoreKeys.Count == 0;
+            foreach (var entry in LoadAllStoreEntries())
             {
-                return entries;
+                if (!entry.HasRootIdentity)
+                {
+                    continue;
+                }
+
+                if (filterIsAll || enabledStoreKeys.Contains(entry.StoreKey))
+                {
+                    result.Add(entry);
+                }
             }
 
+            return result;
+        }
+
+        /// <summary>
+        /// Whether the persisted root baseline contains at least one usable root. Used to decide
+        /// whether a one-time bootstrap scan is needed — as opposed to the enable filter simply
+        /// matching none of the saved roots, which must NOT trigger a full store scan.
+        /// </summary>
+        public static bool HasAnyStoreRoots()
+        {
+            foreach (var entry in LoadAllStoreEntries())
+            {
+                if (entry.HasRootIdentity)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static List<StoreFilterEntry> LoadAllStoreEntries()
+        {
+            var entries = new List<StoreFilterEntry>();
             string raw;
             try
             {
@@ -60,9 +101,7 @@ namespace OutlookQuickMove
             foreach (var line in raw.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
             {
                 var entry = ParseEntry(line);
-                if (entry != null
-                    && entry.HasRootIdentity
-                    && enabledStoreKeys.Contains(entry.StoreKey))
+                if (entry != null)
                 {
                     entries.Add(entry);
                 }
@@ -102,19 +141,150 @@ namespace OutlookQuickMove
             }
         }
 
+        /// <summary>
+        /// Replaces the saved root baseline with the given stores. Use only after a clean full scan;
+        /// because it replaces the whole file, stores no longer present are pruned. Called with all
+        /// known stores, not just the enabled subset, so the enable filter and the root baseline stay
+        /// decoupled.
+        /// </summary>
         public static bool SaveEnabledStoreEntries(IEnumerable<StoreCandidate> stores)
         {
-            var entries = stores == null
-                ? Enumerable.Empty<StoreCandidate>()
-                : stores.Where(store => store != null && !string.IsNullOrWhiteSpace(store.StoreKey));
+            var entries = ToStoreEntries(stores);
 
-            var builder = new StringBuilder();
-            foreach (var store in entries)
+            lock (RootGate)
             {
-                builder.Append(EncodeKey(store.StoreKey)).Append('\t')
-                    .Append(EncodeKey(store.DisplayName)).Append('\t')
-                    .Append(EncodeKey(store.RootEntryId)).Append('\t')
-                    .Append(EncodeKey(store.RootStoreId)).Append('\n');
+                return WriteStoreEntries(entries);
+            }
+        }
+
+        /// <summary>
+        /// Adds/updates roots from a partial store scan without pruning roots that were not observed.
+        /// Use this when the scan reported errors or returned stores with missing root identities.
+        /// </summary>
+        public static bool MergeStoreRoots(IEnumerable<StoreCandidate> stores)
+        {
+            var entries = ToStoreEntries(stores).ToList();
+            if (entries.Count == 0)
+            {
+                return true;
+            }
+
+            lock (RootGate)
+            {
+                var merged = LoadAllStoreEntries();
+                foreach (var entry in entries)
+                {
+                    MergeEntry(merged, entry);
+                }
+
+                return WriteStoreEntries(merged);
+            }
+        }
+
+        /// <summary>
+        /// Adds or updates (by store key) a single store's root identity in the baseline, used by
+        /// the <c>StoreAdd</c> tracker to pick up a newly mounted data file without a full scan.
+        /// </summary>
+        public static bool MergeStoreRoot(StoreFilterEntry entry)
+        {
+            if (entry == null || string.IsNullOrEmpty(entry.StoreKey) || !entry.HasRootIdentity)
+            {
+                return false;
+            }
+
+            lock (RootGate)
+            {
+                var merged = new List<StoreFilterEntry>();
+                merged.AddRange(LoadAllStoreEntries());
+                MergeEntry(merged, entry);
+                return WriteStoreEntries(merged);
+            }
+        }
+
+        private static IEnumerable<StoreFilterEntry> ToStoreEntries(IEnumerable<StoreCandidate> stores)
+        {
+            return (stores ?? Enumerable.Empty<StoreCandidate>())
+                .Where(store => store != null
+                    && !string.IsNullOrWhiteSpace(store.StoreKey)
+                    && store.HasRootIdentity)
+                .Select(store => new StoreFilterEntry(store.StoreKey, store.DisplayName, store.RootEntryId, store.RootStoreId));
+        }
+
+        private static void MergeEntry(List<StoreFilterEntry> entries, StoreFilterEntry entry)
+        {
+            if (entries == null || entry == null || string.IsNullOrWhiteSpace(entry.StoreKey) || !entry.HasRootIdentity)
+            {
+                return;
+            }
+
+            var replaced = false;
+            for (var i = entries.Count - 1; i >= 0; i--)
+            {
+                if (string.Equals(entries[i].StoreKey, entry.StoreKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!replaced)
+                    {
+                        entries[i] = entry;
+                        replaced = true;
+                    }
+                    else
+                    {
+                        entries.RemoveAt(i);
+                    }
+                }
+            }
+
+            if (!replaced)
+            {
+                entries.Add(entry);
+            }
+        }
+
+        /// <summary>
+        /// Removes a single store's root from the baseline (strict lazy prune when a saved root is
+        /// definitively not found). Returns false when nothing matched.
+        /// </summary>
+        public static bool RemoveStoreRoot(string storeKey)
+        {
+            if (string.IsNullOrEmpty(storeKey))
+            {
+                return false;
+            }
+
+            lock (RootGate)
+            {
+                var kept = new List<StoreFilterEntry>();
+                var removed = false;
+                foreach (var existing in LoadAllStoreEntries())
+                {
+                    if (string.Equals(existing.StoreKey, storeKey, StringComparison.OrdinalIgnoreCase))
+                    {
+                        removed = true;
+                    }
+                    else
+                    {
+                        kept.Add(existing);
+                    }
+                }
+
+                return removed && WriteStoreEntries(kept);
+            }
+        }
+
+        private static bool WriteStoreEntries(IEnumerable<StoreFilterEntry> entries)
+        {
+            var builder = new StringBuilder();
+            foreach (var entry in entries)
+            {
+                if (entry == null || string.IsNullOrWhiteSpace(entry.StoreKey) || !entry.HasRootIdentity)
+                {
+                    continue;
+                }
+
+                builder.Append(EncodeKey(entry.StoreKey)).Append('\t')
+                    .Append(EncodeKey(entry.DisplayName)).Append('\t')
+                    .Append(EncodeKey(entry.RootEntryId)).Append('\t')
+                    .Append(EncodeKey(entry.RootStoreId)).Append('\n');
             }
 
             try

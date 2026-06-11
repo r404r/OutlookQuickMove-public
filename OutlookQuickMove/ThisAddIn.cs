@@ -9,12 +9,17 @@ namespace OutlookQuickMove
         private void ThisAddIn_Startup(object sender, System.EventArgs e)
         {
             DebugLog("ThisAddIn_Startup");
+
+            // Subscribe to Stores.StoreAdd so newly mounted data files are recorded into the
+            // store-root baseline without scanning the whole Stores collection on the hot path.
+            StoreRootTracker.Start(this.Application);
         }
 
         private void ThisAddIn_Shutdown(object sender, System.EventArgs e)
         {
-            // Note: Outlook no longer raises this event. If you have code that 
-            //    must run when Outlook shuts down, see https://go.microsoft.com/fwlink/?LinkId=506785
+            // Note: Outlook no longer raises this event reliably. Best-effort: unsubscribe and
+            //    release the one retained Stores reference if it does fire.
+            StoreRootTracker.Stop();
         }
 
         protected override Office.IRibbonExtensibility CreateRibbonExtensibilityObject()

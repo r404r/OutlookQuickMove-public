@@ -234,6 +234,7 @@
     <Compile Include="StoreEnumerationResult.cs" />
     <Compile Include="StoreFilterSettings.cs" />
     <Compile Include="StoreFilterEntry.cs" />
+    <Compile Include="StoreRootTracker.cs" />
     <Compile Include="UndoEntry.cs" />
     <Compile Include="UndoStore.cs" />
     <Compile Include="UndoHistoryForm.cs">

@@ -18,6 +18,7 @@ namespace OutlookQuickMove
         private readonly CheckBox checkMarkAsRead;
         private readonly Button buttonOk;
         private readonly Button buttonRefresh;
+        private static readonly Size ActionButtonSize = new Size(104, 32);
 
         public FolderPickerForm(
             IEnumerable<FolderCandidate> folders,
@@ -59,7 +60,7 @@ namespace OutlookQuickMove
             textSearch = new TextBox
             {
                 Dock = DockStyle.Fill,
-                Margin = new Padding(0, 0, 0, 8)
+                Margin = new Padding(0, 0, 0, 6)
             };
             textSearch.TextChanged += delegate { ApplyFilter(); };
             textSearch.KeyDown += HandleSearchKeyDown;
@@ -67,14 +68,16 @@ namespace OutlookQuickMove
             buttonRefresh = new Button
             {
                 Enabled = this.refreshFolders != null,
-                Margin = new Padding(8, 0, 0, 8),
-                Size = new Size(88, 28),
+                Margin = new Padding(8, 0, 0, 6),
+                Size = ActionButtonSize,
                 Text = "Refresh"
             };
             buttonRefresh.Click += delegate { RefreshFolderList(); };
 
             var searchPanel = new TableLayoutPanel
             {
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 ColumnCount = 2,
                 Dock = DockStyle.Fill,
                 Margin = new Padding(0),
@@ -112,7 +115,7 @@ namespace OutlookQuickMove
                 DialogResult = DialogResult.None,
                 Enabled = false,
                 Margin = new Padding(8, 0, 0, 0),
-                Size = new Size(88, 28),
+                Size = ActionButtonSize,
                 Text = this.options.ConfirmButtonText
             };
             buttonOk.Click += delegate { ConfirmSelection(); };
@@ -121,7 +124,7 @@ namespace OutlookQuickMove
             {
                 DialogResult = DialogResult.Cancel,
                 Margin = new Padding(8, 0, 0, 0),
-                Size = new Size(88, 28),
+                Size = ActionButtonSize,
                 Text = "Cancel"
             };
 

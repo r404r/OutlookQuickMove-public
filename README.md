@@ -13,6 +13,7 @@ to a folder you find by typing — no dragging, no expanding the folder tree.
   move. Works on one or many selected messages.
 - **Go to Folder** — search the same folder list and switch the active Outlook window without
   moving mail.
+- **Go to Mail Folder** — jump from a selected mail item to the folder that contains it.
 - **Frequent folders first** — destinations you use most float to the top, so common moves are
   one keystroke away (an empty search box pre-selects your most-used folder).
 - **Mark as read before moving** — optional, and your choice is remembered across restarts.
@@ -73,6 +74,8 @@ Available buttons:
 - `Quick Move`: search and move the selected mail items.
 - `Go to Folder`: search for a folder and switch the active Outlook window to it (navigate, no
   move). Uses the same Data Files selection and the same type-to-filter dialog as Quick Move.
+- `Go to Mail Folder`: switch the active Outlook window to the folder that contains the first
+  selected mail item. Useful after finding a message through Outlook search.
 - `Undo Quick Move...`: open a checklist of recent moves and send the chosen items back to
   their original folders. Enabled only when there is move history to undo.
 - `Settings`: a tabbed dialog — `Data Files` (which Outlook data files are searched),
@@ -89,6 +92,12 @@ the chosen folder. It searches the same folders as Quick Move (the saved Data Fi
 and floats your most-used Quick Move destinations to the top for quick access, but it never
 changes any mail and never records a move — so the frequent-folders and undo history are
 untouched.
+
+`Go to Mail Folder` starts from the current Outlook selection instead of opening the picker. Select
+a mail item, press the button, and Outlook switches to the folder that contains that mail. If
+multiple items are selected, Outlook asks for confirmation and then uses the first mail item in the
+selection. If the mail is already in the current folder, the add-in shows a short message and does
+not navigate.
 
 ## Frequent folders
 
@@ -149,6 +158,13 @@ immediately when you save Settings. A folder you create or rename directly in Ou
 take up to about 2 minutes to appear; save Settings to refresh it right away. If some folders cannot
 be read during enumeration, the Quick Move summary groups the warnings by cause and points you to
 the diagnostic log for the exact folders.
+
+On profiles with many or large data files, Quick Move avoids opening the whole set of data files
+every time (which can trigger Outlook's "exhausted all shared resources" error). It records each
+data file's location once and then opens only what it needs. New data files you add are picked up
+automatically; a data file you remove is cleaned up the next time you open Settings or press
+`Refresh`. If a newly added data file or folder ever doesn't show up, press `Refresh` in the dialog
+(or open and save Settings) to rebuild the list.
 
 The `Mark as read before moving` checkbox remembers its last confirmed state across dialog
 closes and Outlook restarts, persisted next to the store filter in:
