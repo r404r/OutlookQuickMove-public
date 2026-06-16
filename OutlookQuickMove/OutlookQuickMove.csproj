@@ -260,6 +260,12 @@
     <EmbeddedResource Include="Assets\GoToMailFolder16.png" />
     <EmbeddedResource Include="Assets\GoToMailFolder32.png" />
     <EmbeddedResource Include="Assets\QuickMove.ico" />
+    <None Include="Assets\LineTech\QuickMove16.png" />
+    <None Include="Assets\LineTech\QuickMove32.png" />
+    <None Include="Assets\LineTech\GoToFolder16.png" />
+    <None Include="Assets\LineTech\GoToFolder32.png" />
+    <None Include="Assets\LineTech\GoToMailFolder16.png" />
+    <None Include="Assets\LineTech\GoToMailFolder32.png" />
   </ItemGroup>
   <PropertyGroup>
     <VisualStudioVersion Condition="'$(VisualStudioVersion)' == ''">10.0</VisualStudioVersion>
