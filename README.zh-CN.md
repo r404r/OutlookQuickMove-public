@@ -7,6 +7,11 @@
 一款键盘优先的 VSTO 加载项，适用于 **Windows 版经典 Outlook**。它可以把选中的邮件
 移动到你通过输入找到的文件夹，无需拖拽，也无需展开文件夹树。
 
+使用指南：
+
+- [Installation and User Guide](docs/USER_GUIDE.md)
+- [安装和使用指南](docs/USER_GUIDE.zh-CN.md)
+
 ## 功能特性
 
 - **Quick Move 对话框**：输入文字即可按完整路径筛选文件夹，使用 `Up`/`Down` 选择，

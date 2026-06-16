@@ -7,6 +7,11 @@
 A keyboard-first VSTO add-in for **classic Outlook on Windows** that moves the selected mail
 to a folder you find by typing — no dragging, no expanding the folder tree.
 
+User guide:
+
+- [Installation and User Guide](docs/USER_GUIDE.md)
+- [安装和使用指南](docs/USER_GUIDE.zh-CN.md)
+
 ## Features
 
 - **Quick Move dialog** — type to filter folders by full path, `Up`/`Down` to pick, `Enter` to
