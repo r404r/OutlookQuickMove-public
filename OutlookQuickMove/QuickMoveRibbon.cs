@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
@@ -13,6 +15,15 @@ namespace OutlookQuickMove
     public sealed class QuickMoveRibbon : Office.IRibbonExtensibility
     {
         private const string UndoButtonId = "QuickMoveUndoButton";
+        private const string GoToFolderImageId = "GoToFolder32";
+        private const string GoToMailFolderImageId = "GoToMailFolder32";
+        private static readonly Dictionary<string, string> RibbonImageResources = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            { "GoToFolder16", "OutlookQuickMove.Assets.GoToFolder16.png" },
+            { GoToFolderImageId, "OutlookQuickMove.Assets.GoToFolder32.png" },
+            { "GoToMailFolder16", "OutlookQuickMove.Assets.GoToMailFolder16.png" },
+            { GoToMailFolderImageId, "OutlookQuickMove.Assets.GoToMailFolder32.png" },
+        };
 
         // The ribbon UI, captured on load so the Undo button's enabled state can be refreshed
         // after a move or an undo. Static because moves run through static helpers.
@@ -27,7 +38,7 @@ namespace OutlookQuickMove
             }
 
             return @"<?xml version=""1.0"" encoding=""UTF-8""?>
-<customUI xmlns=""http://schemas.microsoft.com/office/2009/07/customui"" onLoad=""OnRibbonLoad"">
+<customUI xmlns=""http://schemas.microsoft.com/office/2009/07/customui"" onLoad=""OnRibbonLoad"" loadImage=""LoadImage"">
   <ribbon>
     <tabs>
       <tab id=""OutlookQuickMoveTab"" label=""Quick Move"" insertAfterMso=""TabMail"">
@@ -40,12 +51,12 @@ namespace OutlookQuickMove
           <button id=""QuickJumpButton""
                   label=""Go to Folder""
                   size=""large""
-                  imageMso=""FolderOpen""
+                  image=""" + GoToFolderImageId + @"""
                   onAction=""OnGoToFolder"" />
           <button id=""QuickJumpSelectedMailFolderButton""
                   label=""Go to Mail Folder""
                   size=""large""
-                  imageMso=""FolderOpen""
+                  image=""" + GoToMailFolderImageId + @"""
                   onAction=""OnGoToSelectedMailFolder"" />
           <button id=""QuickMoveUndoButton""
                   label=""Undo Quick Move...""
@@ -63,6 +74,38 @@ namespace OutlookQuickMove
     </tabs>
   </ribbon>
 </customUI>";
+        }
+
+        public stdole.IPictureDisp LoadImage(string imageId)
+        {
+            try
+            {
+                string resourceName;
+                if (string.IsNullOrEmpty(imageId) || !RibbonImageResources.TryGetValue(imageId, out resourceName))
+                {
+                    QuickMoveLog.Write("Ribbon image id was not recognized: " + (imageId ?? "(null)"));
+                    return null;
+                }
+
+                using (var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName))
+                {
+                    if (stream == null)
+                    {
+                        QuickMoveLog.Write("Ribbon image resource was not found: " + resourceName);
+                        return null;
+                    }
+
+                    using (var image = Image.FromStream(stream))
+                    {
+                        return PictureDispConverter.ToPictureDisp(image);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                QuickMoveLog.Write("Failed to load ribbon image: " + (imageId ?? "(null)"), ex);
+                return null;
+            }
         }
 
         public void OnQuickMove(Office.IRibbonControl control)
@@ -160,6 +203,19 @@ namespace OutlookQuickMove
             catch (Exception ex)
             {
                 QuickMoveLog.Write("failed to refresh the undo button.", ex);
+            }
+        }
+
+        private sealed class PictureDispConverter : AxHost
+        {
+            private PictureDispConverter()
+                : base(null)
+            {
+            }
+
+            public static stdole.IPictureDisp ToPictureDisp(Image image)
+            {
+                return (stdole.IPictureDisp)GetIPictureDispFromPicture(image);
             }
         }
 
