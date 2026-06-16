@@ -253,6 +253,8 @@
       <DependentUpon>ThisAddIn.Designer.xml</DependentUpon>
     </Compile>
     <AppDesigner Include="Properties\" />
+    <EmbeddedResource Include="Assets\QuickMove16.png" />
+    <EmbeddedResource Include="Assets\QuickMove32.png" />
     <EmbeddedResource Include="Assets\GoToFolder16.png" />
     <EmbeddedResource Include="Assets\GoToFolder32.png" />
     <EmbeddedResource Include="Assets\GoToMailFolder16.png" />

@@ -15,10 +15,13 @@ namespace OutlookQuickMove
     public sealed class QuickMoveRibbon : Office.IRibbonExtensibility
     {
         private const string UndoButtonId = "QuickMoveUndoButton";
+        private const string QuickMoveImageId = "QuickMove32";
         private const string GoToFolderImageId = "GoToFolder32";
         private const string GoToMailFolderImageId = "GoToMailFolder32";
         private static readonly Dictionary<string, string> RibbonImageResources = new Dictionary<string, string>(StringComparer.Ordinal)
         {
+            { "QuickMove16", "OutlookQuickMove.Assets.QuickMove16.png" },
+            { QuickMoveImageId, "OutlookQuickMove.Assets.QuickMove32.png" },
             { "GoToFolder16", "OutlookQuickMove.Assets.GoToFolder16.png" },
             { GoToFolderImageId, "OutlookQuickMove.Assets.GoToFolder32.png" },
             { "GoToMailFolder16", "OutlookQuickMove.Assets.GoToMailFolder16.png" },
@@ -46,7 +49,7 @@ namespace OutlookQuickMove
           <button id=""QuickMoveButton""
                   label=""Quick Move""
                   size=""large""
-                  imageMso=""MoveToFolder""
+                  image=""" + QuickMoveImageId + @"""
                   onAction=""OnQuickMove"" />
           <button id=""QuickJumpButton""
                   label=""Go to Folder""
